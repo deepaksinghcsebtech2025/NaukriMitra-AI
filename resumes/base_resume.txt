@@ -1,0 +1,9 @@
+Paste your full resume here as plain text. The filter and resume agents read this file to score jobs and generate tailored PDFs.
+
+Example:
+---
+Senior Python Engineer with 5+ years building APIs with FastAPI, PostgreSQL, and cloud deployments.
+Experienced with async I/O, observability, and shipping production services.
+
+Skills: Python, FastAPI, PostgreSQL, Redis, Docker, AWS, system design.
+---

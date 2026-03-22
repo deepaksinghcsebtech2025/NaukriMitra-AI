@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ultra Job Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">⚡</span>
+        <div>
+          <div class="brand-title">Ultra Job Agent</div>
+          <div class="brand-sub">Autonomous apply · Live pipeline</div>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <span id="conn-pill" class="pill pill-muted">API</span>
+        <span id="ws-pill" class="pill pill-muted">Logs WS</span>
+      </div>
+    </header>
+
+    <aside class="sidebar" id="sidebar">
+      <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="nav-btn" data-tab="pipeline">Pipeline</button>
+      <button class="nav-btn" data-tab="applications">Applications</button>
+      <button class="nav-btn" data-tab="jarvis">Jarvis</button>
+      <button class="nav-btn" data-tab="config">Config</button>
+    </aside>
+
+    <main class="main">
+      <section id="panel-dashboard" class="panel active">
+        <div class="grid-stats">
+          <article class="card stat-card"><h3>Discovered</h3><p id="stat-discovered">—</p></article>
+          <article class="card stat-card"><h3>Applied (total)</h3><p id="stat-applied">—</p></article>
+          <article class="card stat-card"><h3>Interviews</h3><p id="stat-interviews">—</p></article>
+          <article class="card stat-card"><h3>Avg match</h3><p id="stat-avg">—</p></article>
+        </div>
+
+        <div class="card workflow-card">
+          <h2>Workflow</h2>
+          <div class="workflow" id="workflow">
+            <div class="wf-step" data-step="0"><span>1</span>Scrape</div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-step" data-step="1"><span>2</span>Filter</div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-step" data-step="2"><span>3</span>Resume</div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-step" data-step="3"><span>4</span>Apply</div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-step" data-step="4"><span>5</span>Track</div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-step" data-step="5"><span>6</span>Notify</div>
+          </div>
+        </div>
+
+        <div class="charts-row">
+          <div class="card chart-card">
+            <h3>By job board</h3>
+            <canvas id="chart-boards" width="420" height="200"></canvas>
+          </div>
+          <div class="card chart-card">
+            <h3>Match score bands</h3>
+            <canvas id="chart-scores" width="420" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="card log-card">
+          <div class="log-head">
+            <h3>Live logs</h3>
+            <span class="pill pill-accent" id="log-status">connecting…</span>
+          </div>
+          <pre id="log-stream" class="log-stream"></pre>
+        </div>
+      </section>
+
+      <section id="panel-pipeline" class="panel">
+        <h2 class="panel-title">Pipeline</h2>
+        <div class="kanban" id="kanban"></div>
+      </section>
+
+      <section id="panel-applications" class="panel">
+        <h2 class="panel-title">Applications</h2>
+        <div class="toolbar">
+          <input type="search" id="app-search" class="input" placeholder="Search company or role…" />
+          <div class="chips" id="app-chips">
+            <button class="chip active" data-filter="all">All</button>
+            <button class="chip" data-filter="APPLIED">Applied</button>
+            <button class="chip" data-filter="INTERVIEW">Interview</button>
+            <button class="chip" data-filter="REJECTED">Rejected</button>
+          </div>
+        </div>
+        <div class="table-wrap card">
+          <table class="data-table" id="apps-table">
+            <thead>
+              <tr>
+                <th>Company</th><th>Role</th><th>Location</th><th>Score</th><th>Status</th><th>Applied</th><th>Resume</th>
+              </tr>
+            </thead>
+            <tbody id="apps-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="panel-jarvis" class="panel">
+        <div class="jarvis-grid">
+          <div class="card jarvis-chat">
+            <h3>Jarvis</h3>
+            <div id="jarvis-messages" class="jarvis-messages"></div>
+            <div class="jarvis-input-row">
+              <input id="jarvis-input" class="input" type="text" placeholder="Ask Jarvis…" />
+              <button id="jarvis-send" class="btn primary">Send</button>
+            </div>
+            <div class="quick-row">
+              <button class="btn ghost quick-cmd" data-q="show stats today">Today stats</button>
+              <button class="btn ghost quick-cmd" data-q="pause all agents">Pause</button>
+              <button class="btn ghost quick-cmd" data-q="run scraper now">Scrape now</button>
+              <button class="btn ghost quick-cmd" data-q="how many pending applications">Pending</button>
+              <button class="btn ghost quick-cmd" data-q="show interviews">Interviews</button>
+            </div>
+          </div>
+          <div class="card jarvis-agents">
+            <h3>Run agents</h3>
+            <p class="muted">Toggle on to fire <code>POST /api/agents/{name}/run</code> (one-shot).</p>
+            <div class="toggle-list" id="agent-toggles"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-config" class="panel">
+        <h2 class="panel-title">Configuration</h2>
+        <form id="config-form" class="card config-form">
+          <fieldset>
+            <legend>Applicant</legend>
+            <label>Name<input name="applicant_name" /></label>
+            <label>Email<input name="applicant_email" type="email" /></label>
+            <label>Phone<input name="applicant_phone" /></label>
+            <label>Location<input name="applicant_location" /></label>
+            <label>LinkedIn<input name="applicant_linkedin" /></label>
+            <label>GitHub<input name="applicant_github" /></label>
+          </fieldset>
+          <fieldset>
+            <legend>Search</legend>
+            <label>Keywords<textarea name="search_keywords" rows="2"></textarea></label>
+            <label>Locations<textarea name="search_locations" rows="2"></textarea></label>
+            <label>Match threshold <span id="thresh-val"></span><input name="match_threshold" type="range" min="50" max="95" /></label>
+            <label>Max applications / day <span id="maxapp-val"></span><input name="max_applications_per_day" type="range" min="1" max="50" /></label>
+            <label>Scrape interval (h)<input name="scrape_interval_hours" type="number" min="1" max="24" /></label>
+          </fieldset>
+          <fieldset>
+            <legend>LLM</legend>
+            <label>Primary model<input name="llm_primary" /></label>
+          </fieldset>
+          <button type="submit" class="btn primary">Save overrides (Redis)</button>
+          <p class="muted small">Secrets stay in <code>.env</code>. This stores non-secret overrides in Redis for UI only.</p>
+        </form>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
