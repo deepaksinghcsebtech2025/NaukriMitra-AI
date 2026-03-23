@@ -11,7 +11,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from dashboard.routes import agents, applications, config_routes, jobs, ws
+from dashboard.routes import (
+    agents,
+    analytics,
+    applications,
+    config_routes,
+    jobs,
+    linkedin_routes,
+    resume_routes,
+    track,
+    ws,
+)
 from scheduler.tasks import get_scheduler, reset_scheduler
 
 
@@ -52,6 +62,10 @@ def create_app() -> FastAPI:
     app.include_router(applications.router, prefix="/api")
     app.include_router(agents.router, prefix="/api")
     app.include_router(config_routes.router, prefix="/api")
+    app.include_router(analytics.router, prefix="/api")
+    app.include_router(resume_routes.router, prefix="/api")
+    app.include_router(linkedin_routes.router, prefix="/api")
+    app.include_router(track.router, prefix="/api")
     app.include_router(ws.router)
 
     @app.get("/health")

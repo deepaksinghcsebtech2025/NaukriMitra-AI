@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ultra Job Agent</title>
+  <title>NaukriMitra-AI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -15,8 +15,8 @@
       <div class="brand">
         <span class="brand-mark">⚡</span>
         <div>
-          <div class="brand-title">Ultra Job Agent</div>
-          <div class="brand-sub">Autonomous apply · Live pipeline</div>
+          <div class="brand-title">NaukriMitra-AI</div>
+          <div class="brand-sub">Autonomous apply · ATS · Prep · Analytics</div>
         </div>
       </div>
       <div class="topbar-meta">
@@ -27,8 +27,10 @@
 
     <aside class="sidebar" id="sidebar">
       <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="nav-btn" data-tab="analytics">Analytics</button>
       <button class="nav-btn" data-tab="pipeline">Pipeline</button>
       <button class="nav-btn" data-tab="applications">Applications</button>
+      <button class="nav-btn" data-tab="prep">Prep</button>
       <button class="nav-btn" data-tab="jarvis">Jarvis</button>
       <button class="nav-btn" data-tab="config">Config</button>
     </aside>
@@ -79,6 +81,40 @@
         </div>
       </section>
 
+      <section id="panel-analytics" class="panel">
+        <h2 class="panel-title">Analytics</h2>
+        <div class="grid-stats">
+          <article class="card stat-card"><h3>Applied (pipeline)</h3><p id="an-total-applied">—</p></article>
+          <article class="card stat-card"><h3>Response rate</h3><p id="an-response-rate">—</p></article>
+          <article class="card stat-card"><h3>Avg match</h3><p id="an-avg-match">—</p></article>
+          <article class="card stat-card"><h3>Email open rate</h3><p id="an-open-rate">—</p></article>
+        </div>
+        <div class="charts-row">
+          <div class="card chart-card">
+            <h3>Status funnel</h3>
+            <canvas id="chart-funnel" width="440" height="220"></canvas>
+          </div>
+          <div class="card chart-card">
+            <h3>Daily applied (14d)</h3>
+            <canvas id="chart-daily" width="440" height="220"></canvas>
+          </div>
+        </div>
+        <div class="charts-row">
+          <div class="card chart-card">
+            <h3>By source</h3>
+            <canvas id="chart-source-an" width="440" height="220"></canvas>
+          </div>
+          <div class="card chart-card">
+            <h3>Resume A/B (responses / total)</h3>
+            <canvas id="chart-variants" width="440" height="220"></canvas>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <h3>Keyword heatmap (job titles)</h3>
+          <canvas id="chart-keywords" width="900" height="160"></canvas>
+        </div>
+      </section>
+
       <section id="panel-pipeline" class="panel">
         <h2 class="panel-title">Pipeline</h2>
         <div class="kanban" id="kanban"></div>
@@ -86,8 +122,18 @@
 
       <section id="panel-applications" class="panel">
         <h2 class="panel-title">Applications</h2>
-        <div class="toolbar">
+        <div class="toolbar toolbar-wrap">
           <input type="search" id="app-search" class="input" placeholder="Search company or role…" />
+          <select id="app-source" class="input input-narrow" aria-label="Filter by source">
+            <option value="">All sources</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="indeed">Indeed</option>
+            <option value="naukri">Naukri</option>
+            <option value="glassdoor">Glassdoor</option>
+          </select>
+          <label class="inline-label">Score <input type="number" id="app-score-min" class="input tiny" min="0" max="100" placeholder="min" /></label>
+          <label class="inline-label">– <input type="number" id="app-score-max" class="input tiny" min="0" max="100" placeholder="max" value="100" /></label>
+          <label class="inline-label">From <input type="date" id="app-date-from" class="input input-date" /></label>
           <div class="chips" id="app-chips">
             <button class="chip active" data-filter="all">All</button>
             <button class="chip" data-filter="APPLIED">Applied</button>
@@ -99,11 +145,37 @@
           <table class="data-table" id="apps-table">
             <thead>
               <tr>
-                <th>Company</th><th>Role</th><th>Location</th><th>Score</th><th>Status</th><th>Applied</th><th>Resume</th>
+                <th>Company</th><th>Role</th><th>Source</th><th>Score</th><th>ATS</th><th>Status</th><th>Applied</th><th>Resume</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="apps-body"></tbody>
           </table>
+        </div>
+      </section>
+
+      <section id="panel-prep" class="panel">
+        <h2 class="panel-title">Interview prep</h2>
+        <div class="card prep-toolbar">
+          <label>Application
+            <select id="prep-app-select" class="input"></select>
+          </label>
+          <button type="button" class="btn primary" id="prep-load">Load prep</button>
+          <button type="button" class="btn ghost" id="prep-generate">Generate prep</button>
+        </div>
+        <div class="card prep-notes">
+          <h3>Company notes</h3>
+          <textarea id="prep-company-notes" rows="4" class="input" placeholder="Research notes, links, talking points…"></textarea>
+          <button type="button" class="btn ghost" id="prep-notes-save">Save notes (local)</button>
+        </div>
+        <div class="card prep-calendar">
+          <h3>Interview schedule</h3>
+          <input type="datetime-local" id="prep-cal-input" class="input" />
+          <button type="button" class="btn ghost" id="prep-cal-add">Add to local list</button>
+          <ul id="prep-cal-list" class="cal-list"></ul>
+        </div>
+        <div class="card">
+          <h3>Prep kit</h3>
+          <pre id="prep-json" class="prep-json">Select an application and load prep.</pre>
         </div>
       </section>
 
@@ -116,12 +188,17 @@
               <input id="jarvis-input" class="input" type="text" placeholder="Ask Jarvis…" />
               <button id="jarvis-send" class="btn primary">Send</button>
             </div>
-            <div class="quick-row">
+            <div class="quick-row quick-row-wrap">
               <button class="btn ghost quick-cmd" data-q="show stats today">Today stats</button>
               <button class="btn ghost quick-cmd" data-q="pause all agents">Pause</button>
               <button class="btn ghost quick-cmd" data-q="run scraper now">Scrape now</button>
               <button class="btn ghost quick-cmd" data-q="how many pending applications">Pending</button>
               <button class="btn ghost quick-cmd" data-q="show interviews">Interviews</button>
+              <button class="btn ghost quick-cmd" data-q="Check my ATS score for Google">ATS sample</button>
+              <button class="btn ghost quick-cmd" data-q="Send recruiter email to Acme Corp">Outreach sample</button>
+              <button class="btn ghost quick-cmd" data-q="Generate interview questions for my latest job">Interview prep</button>
+              <button class="btn ghost quick-cmd" data-q="Optimize my LinkedIn headline">LinkedIn</button>
+              <button class="btn ghost quick-cmd" data-q="Which resume variant is performing best?">Resume A/B</button>
             </div>
           </div>
           <div class="card jarvis-agents">
@@ -156,11 +233,37 @@
             <legend>LLM</legend>
             <label>Primary model<input name="llm_primary" /></label>
           </fieldset>
+          <fieldset>
+            <legend>Smart filters</legend>
+            <label>Exclude companies (comma)<input name="exclude_companies" placeholder="TCS, Infosys" /></label>
+            <label>Exclude keywords (comma)<input name="exclude_keywords" /></label>
+            <label>Min salary (INR)<input name="min_salary_inr" type="number" /></label>
+            <label>Prefer companies (comma)<input name="prefer_companies" placeholder="startup, product" /></label>
+            <label>Max experience required<input name="max_experience_required" type="number" /></label>
+            <label>Work type<select name="work_type"><option value="any">any</option><option value="remote">remote</option><option value="hybrid">hybrid</option><option value="onsite">onsite</option></select></label>
+            <label>Company size<select name="company_size"><option value="any">any</option><option value="startup">startup</option><option value="mid">mid</option><option value="enterprise">enterprise</option></select></label>
+          </fieldset>
+          <fieldset>
+            <legend>LinkedIn optimizer</legend>
+            <label>Target roles (comma)<textarea name="target_roles" rows="2"></textarea></label>
+            <label>Active resume variant<input name="resume_active_variant" placeholder="base | technical | achievement | concise | detailed" /></label>
+            <button type="button" class="btn ghost" id="btn-linkedin-run">Run optimizer (uses base resume)</button>
+            <pre id="linkedin-result" class="linkedin-result muted small"></pre>
+          </fieldset>
           <button type="submit" class="btn primary">Save overrides (Redis)</button>
           <p class="muted small">Secrets stay in <code>.env</code>. This stores non-secret overrides in Redis for UI only.</p>
         </form>
       </section>
     </main>
+  </div>
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div class="modal-card card">
+      <div class="modal-head">
+        <h3 id="modal-title">Details</h3>
+        <button type="button" class="btn ghost" id="modal-close">Close</button>
+      </div>
+      <pre id="modal-body" class="modal-body"></pre>
+    </div>
   </div>
   <script src="/static/app.js"></script>
 </body>

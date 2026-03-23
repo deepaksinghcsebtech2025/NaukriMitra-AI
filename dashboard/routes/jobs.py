@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
+from agents.ats_checker import ATSCheckerAgent
 from agents.tracker import TrackerAgent
 from core.database import get_db_client
 
@@ -97,3 +99,33 @@ async def get_stats() -> dict:
         if key in stats and isinstance(stats[key], int):
             out[key] = stats[key]
     return out
+
+
+@router.get("/ats-check/{job_id}")
+async def ats_check_job(job_id: str) -> dict:
+    """Run ATS analysis for base resume vs this job; persist score on linked application."""
+
+    db = get_db_client()
+    job = await db.select_one("jobs", {"id": job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    apps = await db.select("applications", limit=500, offset=0)
+    app = next((a for a in apps if str(a.get("job_id")) == str(job_id)), None)
+
+    resume_path = Path("resumes/base_resume.txt")
+    resume_text = (
+        resume_path.read_text(encoding="utf-8") if resume_path.exists() else "Experienced software engineer."
+    )
+    desc = str(job.get("description", "") or "")
+    agent = ATSCheckerAgent()
+    result = await agent.check_resume(resume_text, desc)
+    score = int(result.get("ats_score", 0))
+
+    if app:
+        await db.update("applications", app["id"], {"ats_score": score})
+        kw = result.get("present_keywords", []) + result.get("missing_keywords", [])
+        if isinstance(kw, list):
+            await db.update("jobs", job_id, {"ats_keywords": kw[:30]})
+
+    return {"job_id": job_id, "application_id": app.get("id") if app else None, **result}

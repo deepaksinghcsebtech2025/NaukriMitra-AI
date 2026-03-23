@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from urllib.parse import quote_plus
 
 import httpx
@@ -25,6 +26,13 @@ class ScraperAgent(BaseAgent):
         """Stable short hash for external_id composition."""
 
         return hashlib.sha256(f"{company.lower()}{title.lower()}".encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        """URL slug for Naukri-style paths."""
+
+        s = re.sub(r"[^a-zA-Z0-9]+", "-", (text or "").lower()).strip("-")
+        return s or "jobs"
 
     async def _get_page(self):
         """Launch Playwright Chromium with a realistic viewport."""
@@ -146,6 +154,118 @@ class ScraperAgent(BaseAgent):
                 await playwright.stop()
         return jobs
 
+    async def scrape_naukri(self, keywords: str, location: str, max_results: int = 30) -> list:
+        """Scrape Naukri.com job listing (best-effort; layout may change)."""
+
+        playwright = None
+        browser = None
+        jobs: list[dict] = []
+        kw_slug = self._slug(keywords.split(",")[0] if keywords else "jobs")
+        loc_slug = self._slug(location)
+        try:
+            playwright, browser, context, page = await self._get_page()
+            url = f"https://www.naukri.com/{kw_slug}-jobs-in-{loc_slug}"
+            await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(4000)
+            await page.wait_for_selector("div.jobTuple, article.jobTuple, .cust-job-tuple", timeout=15000)
+            cards = await page.query_selector_all("div.jobTuple, article.jobTuple, .cust-job-tuple")
+            for card in cards[:max_results]:
+                try:
+                    title_el = await card.query_selector(".title a, a.title, h2.title a")
+                    company_el = await card.query_selector(".subTitle, .comp-name, span.subTitle")
+                    loc_el = await card.query_selector(".location, .locWdth")
+                    exp_el = await card.query_selector(".experience, .expwdth")
+                    sal_el = await card.query_selector(".salary, .salary-snippet")
+                    if not title_el:
+                        continue
+                    title = (await title_el.inner_text()).strip()
+                    company = (await company_el.inner_text()).strip() if company_el else "Unknown"
+                    loc_txt = (await loc_el.inner_text()).strip() if loc_el else location
+                    exp_txt = (await exp_el.inner_text()).strip() if exp_el else ""
+                    sal_txt = (await sal_el.inner_text()).strip() if sal_el else ""
+                    href = await title_el.get_attribute("href") if title_el else ""
+                    if href and not href.startswith("http"):
+                        href = f"https://www.naukri.com{href}" if href.startswith("/") else href
+                    jid = self._job_hash(company, title)
+                    desc_bits = [exp_txt, sal_txt, loc_txt]
+                    jobs.append(
+                        {
+                            "external_id": f"nk_{jid}",
+                            "title": title,
+                            "company": company,
+                            "location": loc_txt,
+                            "apply_url": href or url,
+                            "source": "naukri",
+                            "description": " ".join(x for x in desc_bits if x),
+                        }
+                    )
+                except Exception as exc:
+                    _ = exc
+                    continue
+        finally:
+            if browser:
+                await browser.close()
+            if playwright:
+                await playwright.stop()
+        return jobs
+
+    async def scrape_glassdoor(self, keywords: str, location: str, max_results: int = 20) -> list:
+        """Scrape Glassdoor India job search (best-effort)."""
+
+        playwright = None
+        browser = None
+        jobs: list[dict] = []
+        q = quote_plus(keywords)
+        try:
+            playwright, browser, context, page = await self._get_page()
+            url = f"https://www.glassdoor.co.in/Job/jobs.htm?sc.keyword={q}"
+            await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(5000)
+            cards = await page.query_selector_all(
+                "li.react-job-listing, div[data-test='job-listing'], .JobCard"
+            )
+            if not cards:
+                cards = await page.query_selector_all("article")
+            for card in cards[:max_results]:
+                try:
+                    title_el = await card.query_selector(
+                        "a.jobLink, a[data-test='job-link'], h2 a, .jobTitle a"
+                    )
+                    company_el = await card.query_selector(
+                        ".employerName, [data-test='employer-name'], .jobCard__company"
+                    )
+                    loc_el = await card.query_selector(
+                        ".location, [data-test='job-location'], .jobCard__location"
+                    )
+                    if not title_el:
+                        continue
+                    title = (await title_el.inner_text()).strip()
+                    company = (await company_el.inner_text()).strip() if company_el else "Unknown"
+                    loc_txt = (await loc_el.inner_text()).strip() if loc_el else location
+                    href = await title_el.get_attribute("href") if title_el else ""
+                    if href and href.startswith("/"):
+                        href = f"https://www.glassdoor.co.in{href}"
+                    jid = self._job_hash(company, title)
+                    jobs.append(
+                        {
+                            "external_id": f"gd_{jid}",
+                            "title": title,
+                            "company": company,
+                            "location": loc_txt,
+                            "apply_url": href or url,
+                            "source": "glassdoor",
+                        }
+                    )
+                except Exception as exc:
+                    _ = exc
+                    continue
+        finally:
+            if browser:
+                await browser.close()
+            if playwright:
+                await playwright.stop()
+        return jobs
+
     async def fetch_description(self, url: str) -> str:
         """Fetch job page text for LLM scoring (truncated)."""
 
@@ -204,6 +324,18 @@ class ScraperAgent(BaseAgent):
                     all_jobs.extend(in_jobs)
                 except Exception as exc:
                     await self.log(f"Indeed error: {exc}", "warning")
+                try:
+                    nk = await self.scrape_naukri(keyword, location)
+                    await self.log(f"Naukri: {len(nk)} found")
+                    all_jobs.extend(nk)
+                except Exception as exc:
+                    await self.log(f"Naukri error: {exc}", "warning")
+                try:
+                    gd = await self.scrape_glassdoor(keyword, location)
+                    await self.log(f"Glassdoor: {len(gd)} found")
+                    all_jobs.extend(gd)
+                except Exception as exc:
+                    await self.log(f"Glassdoor error: {exc}", "warning")
 
         new_jobs = await self.deduplicate(all_jobs)
         await self.log(f"New unique jobs: {len(new_jobs)}")

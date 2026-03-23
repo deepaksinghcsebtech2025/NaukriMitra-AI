@@ -30,6 +30,15 @@ async def get_config() -> dict:
         "max_applications_per_day": s.max_applications_per_day,
         "scrape_interval_hours": s.scrape_interval_hours,
         "llm_primary": s.llm_primary,
+        "exclude_companies": s.exclude_companies,
+        "exclude_keywords": s.exclude_keywords,
+        "min_salary_inr": s.min_salary_inr,
+        "prefer_companies": s.prefer_companies,
+        "max_experience_required": s.max_experience_required,
+        "work_type": s.work_type,
+        "company_size": s.company_size,
+        "target_roles": s.target_roles,
+        "resume_active_variant": s.resume_active_variant,
     }
 
 

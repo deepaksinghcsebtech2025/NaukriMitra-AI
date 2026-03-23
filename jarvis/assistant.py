@@ -15,7 +15,7 @@ async def handle_ws_jarvis(websocket: WebSocket) -> None:
     await websocket.send_json(
         {
             "type": "connected",
-            "msg": "Jarvis online. Try: 'show stats', 'run scraper', 'how many applied today?'",
+            "msg": "Jarvis online. Try: stats, ATS score for [company], interview prep, LinkedIn optimize, resume A/B.",
         }
     )
     while True:

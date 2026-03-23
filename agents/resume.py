@@ -39,12 +39,12 @@ class ResumeAgent(BaseAgent):
 Return ONLY valid JSON with exactly these keys:
 {{
   "summary": "3-sentence professional summary tailored to this role",
-  "skills": ["skill1", "skill2", "skill3", ... up to 12 skills],
+  "skills": ["skill1", "skill2", ... up to 12 skills],
   "experience_bullets": [
-    "• Achieved X by doing Y resulting in Z (STAR format)",
-    ... 5 bullets tailored to this job
+    "5 achievement bullets using STAR; include metrics from the resume where possible",
+    ...
   ],
-  "cover_letter": "3-paragraph professional cover letter"
+  "cover_letter": "A single string: exactly 3 paragraphs, 250-300 words total. Paragraph 1: specific hook about THIS company and role (research from description). Paragraph 2: your top 2-3 wins with metrics pulled from the resume text. Paragraph 3: confident call to action. Tone: direct and human. FORBIDDEN phrases: 'I am writing to apply', 'I believe I would be a great fit', 'Dear Hiring Manager' as lazy filler. No generic AI fluff."
 }}
 
 Target Job: {job.get('title')} at {job.get('company')}
@@ -191,6 +191,7 @@ Applicant Resume:
                         "status": "TAILORED",
                         "resume_path": output_path,
                         "cover_letter": content.get("cover_letter", ""),
+                        "resume_variant": self.settings.resume_active_variant,
                     },
                 )
                 count += 1
@@ -201,3 +202,82 @@ Applicant Resume:
         await self.record_run("completed", count)
         await self.log(f"ResumeAgent done. {count} PDFs generated.")
         return {"tailored": count}
+
+
+class ResumeVariantAgent(BaseAgent):
+    """Generate alternate resume text files per style and summarize variant performance."""
+
+    STYLES = ("technical", "achievement", "concise", "detailed")
+
+    async def create_variant(self, base_resume: str, style: str) -> str:
+        """Rewrite resume in the given style; persist to disk and resume_variants table."""
+
+        if style not in self.STYLES:
+            raise ValueError(f"style must be one of {self.STYLES}")
+        prompt = f"""Rewrite the resume below in a '{style}' style.
+Return ONLY valid JSON: {{"content": "<full plain-text resume body>"}}
+
+Rules:
+- technical: emphasize stack, system design, depth
+- achievement: emphasize metrics, outcomes, leadership
+- concise: shorter sections, punchy bullets
+- detailed: richer context per role
+
+Original resume:
+{base_resume[:4000]}"""
+
+        data = await self.llm.extract_json(prompt, use_cache=False)
+        text = str(data.get("content", "")).strip()
+        Path("resumes/variants").mkdir(parents=True, exist_ok=True)
+        out_path = Path(f"resumes/variants/{style}_resume.txt")
+        out_path.write_text(text, encoding="utf-8")
+
+        await self.db.insert(
+            "resume_variants",
+            {"variant_name": style, "content": text[:50000]},
+        )
+        return str(out_path)
+
+    async def analyze_performance(self) -> dict:
+        """Aggregate applications by resume_variant; proxy 'response' with interview-stage counts."""
+
+        apps = await self.db.select("applications", limit=10000, offset=0)
+        by_variant: dict[str, dict[str, int]] = {}
+        for a in apps:
+            v = (a.get("resume_variant") or "base").lower()
+            if v not in by_variant:
+                by_variant[v] = {"total": 0, "responses": 0}
+            by_variant[v]["total"] += 1
+            if a.get("status") in ("INTERVIEW", "OFFER", "REVIEWING", "SUBMITTED"):
+                by_variant[v]["responses"] += 1
+
+        winner = None
+        best_rate = -1.0
+        for v, m in by_variant.items():
+            rate = (m["responses"] / m["total"] * 100) if m["total"] else 0.0
+            if rate > best_rate:
+                best_rate = rate
+                winner = v
+
+        return {
+            "by_variant": by_variant,
+            "winning_variant": winner,
+            "winning_response_rate_pct": round(best_rate, 2) if winner else 0.0,
+        }
+
+    async def run(self) -> dict:
+        """Generate all style variants from base resume."""
+
+        base = Path("resumes/base_resume.txt")
+        text = base.read_text(encoding="utf-8") if base.exists() else ""
+        if not text.strip():
+            return {"variants": 0, "error": "base_resume.txt missing"}
+        n = 0
+        for style in self.STYLES:
+            try:
+                await self.create_variant(text, style)
+                n += 1
+            except Exception as exc:
+                await self.log(f"Variant {style} failed: {exc}", "warning")
+        await self.record_run("completed", n)
+        return {"variants": n}

@@ -27,27 +27,72 @@ def client(monkeypatch):
     monkeypatch.setattr(TrackerAgent, "get_pipeline_stats", fake_pipeline)
 
     class FakeDB:
+        jobs_data = [
+            {
+                "id": "j1",
+                "title": "T",
+                "company": "C",
+                "location": "L",
+                "match_score": 80,
+                "source": "linkedin",
+                "description": "Python backend",
+            }
+        ]
+        apps_data = [
+            {
+                "id": "a1",
+                "job_id": "j1",
+                "status": "DISCOVERED",
+                "ats_score": 0,
+                "cover_letter": "",
+                "interview_prep": {},
+                "applied_at": None,
+                "resume_path": None,
+                "outreach_sent": False,
+                "resume_variant": "base",
+            }
+        ]
+
         async def select(self, table, filters=None, limit=100, offset=0):
+            filters = filters or {}
             if table == "jobs":
-                return [
-                    {
-                        "id": "j1",
-                        "title": "T",
-                        "company": "C",
-                        "location": "L",
-                        "match_score": 80,
-                        "source": "linkedin",
-                        "app_status": "DISCOVERED",
-                    }
-                ]
-            if table == "applications":
-                return [{"id": "a1", "job_id": "j1", "status": "DISCOVERED"}]
-            return []
+                rows = list(self.jobs_data)
+            elif table == "applications":
+                rows = list(self.apps_data)
+            elif table == "recruiter_outreach":
+                rows = []
+            elif table == "resume_variants":
+                rows = []
+            else:
+                rows = []
+            for key, value in filters.items():
+                rows = [r for r in rows if r.get(key) == value]
+            return rows[offset : offset + limit]
+
+        async def select_one(self, table, filters=None):
+            rows = await self.select(table, filters, limit=1, offset=0)
+            return rows[0] if rows else None
+
+        async def insert(self, table, data):
+            return {**data, "id": "new-row"}
+
+        async def update(self, table, record_id, data):
+            return {"id": record_id, **data}
 
     fake = FakeDB()
 
-    monkeypatch.setattr("dashboard.routes.jobs.get_db_client", lambda: fake)
-    monkeypatch.setattr("dashboard.routes.applications.get_db_client", lambda: fake)
+    def get_fake_db():
+        return fake
+
+    for mod in (
+        "dashboard.routes.jobs",
+        "dashboard.routes.applications",
+        "dashboard.routes.analytics",
+        "dashboard.routes.resume_routes",
+        "dashboard.routes.track",
+        "agents.base",
+    ):
+        monkeypatch.setattr(f"{mod}.get_db_client", get_fake_db)
 
     with TestClient(create_app()) as c:
         yield c
@@ -71,6 +116,20 @@ def test_jobs(client: TestClient):
     r = client.get("/api/jobs")
     assert r.status_code == 200
     assert "jobs" in r.json()
+
+
+def test_analytics_overview(client: TestClient):
+    r = client.get("/api/analytics/overview")
+    assert r.status_code == 200
+    body = r.json()
+    assert "status_funnel" in body
+    assert "daily_applied" in body
+
+
+def test_applications_interview_prep(client: TestClient):
+    r = client.get("/api/applications/a1/interview-prep")
+    assert r.status_code == 200
+    assert r.json().get("application_id") == "a1"
 
 
 def test_run_agent(client: TestClient, monkeypatch):

@@ -1,4 +1,4 @@
-/* Ultra Job Agent — vanilla dashboard */
+/* NaukriMitra-AI — vanilla dashboard */
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -8,8 +8,8 @@ function wsUrl(path) {
   return `${proto}//${location.host}${path}`;
 }
 
-async function fetchJSON(url) {
-  const r = await fetch(url);
+async function fetchJSON(url, opts) {
+  const r = await fetch(url, opts);
   if (!r.ok) throw new Error(`${url} ${r.status}`);
   return r.json();
 }
@@ -17,6 +17,19 @@ async function fetchJSON(url) {
 function setText(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
+}
+
+function showModal(title, body) {
+  const ov = $("#modal-overlay");
+  if (!ov) return;
+  $("#modal-title").textContent = title;
+  $("#modal-body").textContent = body;
+  ov.hidden = false;
+}
+
+function hideModal() {
+  const ov = $("#modal-overlay");
+  if (ov) ov.hidden = true;
 }
 
 function drawBarChart(canvas, labels, values, colors) {
@@ -44,6 +57,97 @@ function drawBarChart(canvas, labels, values, colors) {
     ctx.fillText(lab, 0, 0);
     ctx.restore();
   });
+}
+
+function drawLineChart(canvas, points) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const pad = 24;
+  const xs = points.map((_, i) => i);
+  const ys = points.map((p) => p.count || 0);
+  const maxY = Math.max(1, ...ys);
+  ctx.strokeStyle = "#6c63ff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  xs.forEach((_, i) => {
+    const x = pad + (i / Math.max(1, xs.length - 1)) * (w - pad * 2);
+    const y = h - pad - (ys[i] / maxY) * (h - pad * 2);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.fillStyle = "#9090a8";
+  ctx.font = "9px 'Space Mono', monospace";
+  points.forEach((p, i) => {
+    if (i % 3 !== 0 && i !== points.length - 1) return;
+    const x = pad + (i / Math.max(1, points.length - 1)) * (w - pad * 2);
+    ctx.fillText((p.date || "").slice(5), x - 10, h - 6);
+  });
+}
+
+function drawFunnel(canvas, funnel) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const order = ["DISCOVERED", "FILTERED", "TAILORED", "APPLIED", "INTERVIEW", "OFFER"];
+  const rows = [];
+  order.forEach((k) => {
+    if (funnel[k] != null) rows.push({ key: k, val: Number(funnel[k]) || 0 });
+  });
+  if (!rows.length) return;
+  const max = Math.max(1, ...rows.map((r) => r.val));
+  const bh = (h - 40) / rows.length;
+  rows.forEach((row, i) => {
+    const width = (row.val / max) * (w - 80) + 40;
+    const y = 20 + i * bh;
+    const hue = 250 - i * 28;
+    ctx.fillStyle = `hsl(${hue}, 70%, 55%)`;
+    ctx.fillRect(40, y, width, bh - 6);
+    ctx.fillStyle = "#c8c8d8";
+    ctx.font = "10px 'Space Mono', monospace";
+    ctx.fillText(`${row.key} ${row.val}`, 8, y + bh / 2 + 4);
+  });
+}
+
+function drawKeywordHeat(canvas, keywords) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const max = Math.max(1, keywords.length);
+  keywords.forEach((word, i) => {
+    const x = 16 + (i % 8) * ((w - 32) / 8);
+    const y = 24 + Math.floor(i / 8) * 36;
+    const intensity = 0.35 + (0.5 * (max - i)) / max;
+    ctx.fillStyle = `rgba(108, 99, 255, ${intensity})`;
+    ctx.fillRect(x, y, (w - 48) / 8 - 4, 28);
+    ctx.fillStyle = "#e8e8f0";
+    ctx.font = "11px 'DM Sans', sans-serif";
+    ctx.fillText(String(word).slice(0, 12), x + 6, y + 18);
+  });
+}
+
+function atsBadge(score) {
+  const s = Number(score) || 0;
+  let cls = "ats-na";
+  let g = "—";
+  if (s >= 80) {
+    cls = "ats-a";
+    g = `${s}%`;
+  } else if (s >= 65) {
+    cls = "ats-b";
+    g = `${s}%`;
+  } else if (s >= 50) {
+    cls = "ats-c";
+    g = `${s}%`;
+  } else if (s > 0) {
+    cls = "ats-d";
+    g = `${s}%`;
+  }
+  return `<span class="ats-badge ${cls}">${g}</span>`;
 }
 
 let statsTimer = null;
@@ -97,12 +201,13 @@ function renderCharts(stats, jobs) {
     else boards.other += 1;
   });
   const c1 = $("#chart-boards");
-  drawBarChart(
-    c1,
-    ["LinkedIn", "Indeed", "Other"],
-    [boards.linkedin, boards.indeed, boards.other],
-    ["#6c63ff", "#ff6584", "#43e97b"]
-  );
+  if (c1)
+    drawBarChart(
+      c1,
+      ["LinkedIn", "Indeed", "Other"],
+      [boards.linkedin, boards.indeed, boards.other],
+      ["#6c63ff", "#ff6584", "#43e97b"]
+    );
 
   let b90 = 0,
     b80 = 0,
@@ -116,12 +221,48 @@ function renderCharts(stats, jobs) {
     else low++;
   });
   const c2 = $("#chart-scores");
-  drawBarChart(
-    c2,
-    ["90+", "80-90", "75-80", "<75"],
-    [b90, b80, b75, low],
-    ["#43e97b", "#6c63ff", "#f7971e", "#ff6584"]
-  );
+  if (c2)
+    drawBarChart(
+      c2,
+      ["90+", "80-90", "75-80", "<75"],
+      [b90, b80, b75, low],
+      ["#43e97b", "#6c63ff", "#f7971e", "#ff6584"]
+    );
+}
+
+async function loadAnalytics() {
+  const a = await fetchJSON("/api/analytics/overview");
+  setText("an-total-applied", String(a.total_applied ?? "0"));
+  setText("an-response-rate", `${a.response_rate ?? 0}%`);
+  setText("an-avg-match", `${a.avg_match_score ?? 0}%`);
+  setText("an-open-rate", `${a.recruiter_email_open_rate ?? 0}%`);
+
+  const cf = $("#chart-funnel");
+  if (cf) drawFunnel(cf, a.status_funnel || {});
+
+  const cd = $("#chart-daily");
+  if (cd) drawLineChart(cd, a.daily_applied || []);
+
+  const src = a.top_sources || {};
+  const labels = Object.keys(src);
+  const vals = labels.map((k) => src[k]);
+  const cs = $("#chart-source-an");
+  if (cs && labels.length)
+    drawBarChart(
+      cs,
+      labels.map((x) => x.slice(0, 8)),
+      vals,
+      ["#6c63ff", "#ff6584", "#43e97b", "#f7971e", "#8b7bff"]
+    );
+
+  const vs = a.resume_variant_stats || {};
+  const vlabels = Object.keys(vs);
+  const vvals = vlabels.map((k) => vs[k].responses || 0);
+  const cv = $("#chart-variants");
+  if (cv && vlabels.length) drawBarChart(cv, vlabels, vvals, ["#6c63ff", "#43e97b", "#ff6584", "#f7971e"]);
+
+  const ck = $("#chart-keywords");
+  if (ck) drawKeywordHeat(ck, a.best_performing_keywords || []);
 }
 
 function connectLogsWS() {
@@ -203,7 +344,7 @@ function connectJarvis() {
       if (msg.type === "connected" || msg.type === "thinking") {
         appendBubble(msg.msg, "jarvis");
       } else if (msg.type === "reply") {
-        const line = msg.data || msg.msg || "";
+        const line = typeof msg.data === "string" ? msg.data : msg.msg || JSON.stringify(msg.data);
         appendBubble(line, "jarvis");
       } else if (msg.type === "error") {
         appendBubble(`Error: ${msg.msg}`, "jarvis");
@@ -267,6 +408,10 @@ async function loadPipeline() {
 function filterApplicationsRows() {
   const tbody = $("#apps-body");
   tbody.innerHTML = "";
+  const srcF = ($("#app-source") && $("#app-source").value) || "";
+  const smin = ($("#app-score-min") && $("#app-score-min").value) || "";
+  const smax = ($("#app-score-max") && $("#app-score-max").value) || "100";
+  const dfrom = ($("#app-date-from") && $("#app-date-from").value) || "";
   appsCache.forEach((row) => {
     const job = row.job || {};
     const st = row.status || "";
@@ -284,28 +429,196 @@ function filterApplicationsRows() {
         return;
       }
     }
+    if (srcF) {
+      const s = (job.source || "").toLowerCase();
+      if (!s.includes(srcF.toLowerCase())) return;
+    }
+    const score = Number(job.match_score) || 0;
+    if (smin !== "" && score < Number(smin)) return;
+    if (smax !== "" && score > Number(smax)) return;
+    const applied = (row.applied_at || "").slice(0, 10);
+    if (dfrom && applied && applied < dfrom) return;
+
     const tr = document.createElement("tr");
-    const score = job.match_score || 0;
+    const aid = row.id;
+    const jid = job.id;
     tr.innerHTML = `
       <td>${job.company || ""}</td>
       <td>${job.title || ""}</td>
-      <td>${job.location || ""}</td>
+      <td><span class="status-pill">${job.source || "—"}</span></td>
       <td><div class="score-wrap"><div class="score-bar" style="width:${Math.min(100, score)}%"></div>${score}%</div></td>
+      <td>${atsBadge(row.ats_score)}</td>
       <td><span class="status-pill status-${st}">${st}</span></td>
       <td>${(row.applied_at || "").slice(0, 10)}</td>
       <td>${
         row.resume_path
           ? `<a href="/${row.resume_path}" target="_blank" rel="noopener">PDF</a>`
           : "—"
-      }</td>`;
+      }</td>
+      <td class="action-btns">
+        <button type="button" class="btn ghost btn-ats" data-job="${jid || ""}">ATS</button>
+        <button type="button" class="btn ghost btn-outreach" data-app="${aid || ""}">Outreach</button>
+        <button type="button" class="btn ghost btn-prep" data-app="${aid || ""}">Prep</button>
+        <button type="button" class="btn ghost btn-letter" data-app="${aid || ""}">Cover letter</button>
+      </td>`;
     tbody.appendChild(tr);
   });
+
+  tbody.querySelectorAll(".btn-ats").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.getAttribute("data-job");
+      if (!id) return;
+      try {
+        const r = await fetchJSON(`/api/ats-check/${id}`);
+        showModal("ATS check", JSON.stringify(r, null, 2));
+      } catch (e) {
+        showModal("ATS check", String(e));
+      }
+    })
+  );
+  tbody.querySelectorAll(".btn-outreach").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.getAttribute("data-app");
+      if (!id) return;
+      try {
+        const r = await fetchJSON(`/api/applications/${id}/recruiter-outreach`, { method: "POST" });
+        showModal("Recruiter outreach", JSON.stringify(r, null, 2));
+      } catch (e) {
+        showModal("Recruiter outreach", String(e));
+      }
+    })
+  );
+  tbody.querySelectorAll(".btn-prep").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.getAttribute("data-app");
+      if (!id) return;
+      try {
+        const r = await fetchJSON(`/api/applications/${id}/interview-prep/generate`, { method: "POST" });
+        showModal("Interview prep generated", JSON.stringify(r, null, 2));
+      } catch (e) {
+        showModal("Interview prep", String(e));
+      }
+    })
+  );
+  tbody.querySelectorAll(".btn-letter").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const id = b.getAttribute("data-app");
+      if (!id) return;
+      try {
+        const r = await fetchJSON(`/api/applications/${id}/cover-letter`);
+        showModal("Cover letter", r.cover_letter || "(empty)");
+      } catch (e) {
+        showModal("Cover letter", String(e));
+      }
+    })
+  );
 }
 
 async function loadApplications() {
   const data = await fetchJSON("/api/applications?limit=500");
   appsCache = data.applications || [];
   filterApplicationsRows();
+  populatePrepSelect();
+}
+
+function populatePrepSelect() {
+  const sel = $("#prep-app-select");
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = "";
+  appsCache.forEach((row) => {
+    const job = row.job || {};
+    const opt = document.createElement("option");
+    opt.value = row.id;
+    opt.textContent = `${job.company || "?"} — ${job.title || "Role"}`;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
+}
+
+function prepLocalKey(id) {
+  return `prep_notes_${id}`;
+}
+
+function loadPrepLocal(id) {
+  const notes = $("#prep-company-notes");
+  const list = $("#prep-cal-list");
+  if (notes) notes.value = localStorage.getItem(prepLocalKey(id)) || "";
+  if (list) {
+    list.innerHTML = "";
+    const raw = localStorage.getItem(`prep_cal_${id}`) || "[]";
+    let items = [];
+    try {
+      items = JSON.parse(raw);
+    } catch {
+      items = [];
+    }
+    items.forEach((t) => {
+      const li = document.createElement("li");
+      li.textContent = t;
+      list.appendChild(li);
+    });
+  }
+}
+
+async function setupPrepPanel() {
+  const sel = $("#prep-app-select");
+  const loadBtn = $("#prep-load");
+  const genBtn = $("#prep-generate");
+  const saveNotes = $("#prep-notes-save");
+  const calAdd = $("#prep-cal-add");
+  if (!sel || !loadBtn) return;
+
+  sel.addEventListener("change", () => loadPrepLocal(sel.value));
+
+  loadBtn.addEventListener("click", async () => {
+    const id = sel.value;
+    if (!id) return;
+    try {
+      const r = await fetchJSON(`/api/applications/${id}/interview-prep`);
+      $("#prep-json").textContent = JSON.stringify(r.interview_prep || {}, null, 2);
+      loadPrepLocal(id);
+    } catch (e) {
+      $("#prep-json").textContent = String(e);
+    }
+  });
+
+  genBtn &&
+    genBtn.addEventListener("click", async () => {
+      const id = sel.value;
+      if (!id) return;
+      try {
+        const r = await fetchJSON(`/api/applications/${id}/interview-prep/generate`, { method: "POST" });
+        $("#prep-json").textContent = JSON.stringify(r, null, 2);
+      } catch (e) {
+        $("#prep-json").textContent = String(e);
+      }
+    });
+
+  saveNotes &&
+    saveNotes.addEventListener("click", () => {
+      const id = sel.value;
+      if (!id) return;
+      localStorage.setItem(prepLocalKey(id), $("#prep-company-notes").value || "");
+    });
+
+  calAdd &&
+    calAdd.addEventListener("click", () => {
+      const id = sel.value;
+      if (!id) return;
+      const v = ($("#prep-cal-input") && $("#prep-cal-input").value) || "";
+      if (!v) return;
+      const raw = localStorage.getItem(`prep_cal_${id}`) || "[]";
+      let items = [];
+      try {
+        items = JSON.parse(raw);
+      } catch {
+        items = [];
+      }
+      items.push(v);
+      localStorage.setItem(`prep_cal_${id}`, JSON.stringify(items));
+      loadPrepLocal(id);
+    });
 }
 
 async function loadConfigForm() {
@@ -353,6 +666,7 @@ function setupTabs() {
       $(`#panel-${tab}`).classList.add("active");
       if (tab === "pipeline") loadPipeline().catch(console.error);
       if (tab === "applications") loadApplications().catch(console.error);
+      if (tab === "analytics") loadAnalytics().catch(console.error);
       if (tab === "config") loadConfigForm().catch(console.error);
     })
   );
@@ -371,6 +685,11 @@ function setupApplicationsFilters() {
       filterApplicationsRows();
     })
   );
+  ["app-source", "app-score-min", "app-score-max", "app-date-from"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", () => filterApplicationsRows());
+    if (el) el.addEventListener("change", () => filterApplicationsRows());
+  });
 }
 
 async function fireAgent(name) {
@@ -378,7 +697,18 @@ async function fireAgent(name) {
 }
 
 function setupAgentToggles() {
-  const names = ["scraper", "filter", "resume", "apply", "notify"];
+  const names = [
+    "scraper",
+    "filter",
+    "resume",
+    "apply",
+    "notify",
+    "ats_checker",
+    "recruiter_outreach",
+    "interview_coach",
+    "linkedin_optimizer",
+    "resume_variant",
+  ];
   const root = $("#agent-toggles");
   root.innerHTML = "";
   names.forEach((n) => {
@@ -401,6 +731,30 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupApplicationsFilters();
   setupAgentToggles();
+  setupPrepPanel();
+  $("#modal-close") &&
+    $("#modal-close").addEventListener("click", () => hideModal());
+  $("#modal-overlay") &&
+    $("#modal-overlay").addEventListener("click", (e) => {
+      if (e.target.id === "modal-overlay") hideModal();
+    });
+
+  $("#btn-linkedin-run") &&
+    $("#btn-linkedin-run").addEventListener("click", async () => {
+      const out = $("#linkedin-result");
+      if (out) out.textContent = "Running…";
+      try {
+        const r = await fetchJSON("/api/linkedin-optimize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (out) out.textContent = JSON.stringify(r, null, 2);
+      } catch (e) {
+        if (out) out.textContent = String(e);
+      }
+    });
+
   refreshStats();
   statsTimer = setInterval(refreshStats, 30000);
   connectLogsWS();

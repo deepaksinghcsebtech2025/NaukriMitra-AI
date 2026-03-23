@@ -15,6 +15,11 @@ AGENT_MAP = {
     "resume": "agents.resume.ResumeAgent",
     "apply": "agents.apply.ApplyAgent",
     "notify": "agents.notifier.NotifierAgent",
+    "ats_checker": "agents.ats_checker.ATSCheckerAgent",
+    "recruiter_outreach": "agents.recruiter_outreach.RecruiterOutreachAgent",
+    "interview_coach": "agents.interview_coach.InterviewCoachAgent",
+    "linkedin_optimizer": "agents.linkedin_optimizer.LinkedInOptimizerAgent",
+    "resume_variant": "agents.resume.ResumeVariantAgent",
 }
 
 
