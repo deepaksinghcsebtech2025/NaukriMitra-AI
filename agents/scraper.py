@@ -1,4 +1,4 @@
-"""Playwright scrapers for LinkedIn and Indeed job listings."""
+"""Playwright scrapers for LinkedIn, Indeed, Naukri, and Glassdoor."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from agents.base import BaseAgent
+from core.salary import detect_remote_type, estimate_salary, extract_experience_range
 
 
 class ScraperAgent(BaseAgent):
@@ -286,22 +287,61 @@ class ScraperAgent(BaseAgent):
             _ = exc
             return ""
 
-    async def deduplicate(self, jobs: list) -> list:
-        """Drop jobs whose external_id already exists in the database."""
+    def _enrich_job(self, job: dict, description: str) -> dict:
+        """Add salary, experience, remote_type from description text."""
+        text = description or job.get("description", "")
 
+        sal = estimate_salary(text)
+        if sal["min"]:
+            job["salary_min"] = sal["min"]
+        if sal["max"]:
+            job["salary_max"] = sal["max"]
+        if sal["raw"]:
+            job["salary_estimate"] = sal["raw"]
+
+        exp = extract_experience_range(text)
+        if exp["min"] is not None:
+            job["experience_min"] = exp["min"]
+        if exp["max"] is not None:
+            job["experience_max"] = exp["max"]
+
+        # detect remote type from location + description combined
+        combined = f"{job.get('location', '')} {text}"
+        job["remote_type"] = detect_remote_type(combined)
+
+        return job
+
+    async def deduplicate(self, jobs: list) -> list:
+        """Drop jobs whose external_id already exists in the database.
+
+        Also performs fuzzy dedup: jobs with the same title+company are
+        flagged as duplicates (keeps whichever was scraped first this run).
+        """
         if not jobs:
             return []
+
+        # Fetch existing external_ids from DB
         existing_ids: set[str] = set()
         existing = await self.db.select("jobs", limit=10000, offset=0)
         for j in existing:
             existing_ids.add(j["external_id"])
-        seen: set[str] = set()
+
+        seen_ids: set[str] = set()
+        seen_title_company: set[str] = set()
         result: list[dict] = []
+
         for j in jobs:
             eid = j["external_id"]
-            if eid not in existing_ids and eid not in seen:
-                seen.add(eid)
-                result.append(j)
+            if eid in existing_ids or eid in seen_ids:
+                continue
+            # Fuzzy dedup: same normalised title + company
+            fuzzy_key = f"{j.get('title','').lower().strip()}|{j.get('company','').lower().strip()}"
+            if fuzzy_key in seen_title_company:
+                continue
+            seen_ids.add(eid)
+            seen_title_company.add(fuzzy_key)
+            result.append(j)
+
         return result
 
     async def run(self) -> dict:
@@ -338,13 +378,15 @@ class ScraperAgent(BaseAgent):
                     await self.log(f"Glassdoor error: {exc}", "warning")
 
         new_jobs = await self.deduplicate(all_jobs)
-        await self.log(f"New unique jobs: {len(new_jobs)}")
+        await self.log(f"New unique jobs after dedup: {len(new_jobs)} (from {len(all_jobs)} scraped)")
 
         saved = 0
         for job in new_jobs:
             try:
                 desc = await self.fetch_description(job.get("apply_url", ""))
                 job["description"] = desc
+                # Enrich with salary / experience / remote_type
+                job = self._enrich_job(job, desc)
                 inserted = await self.db.insert("jobs", job)
                 await self.db.insert(
                     "applications",

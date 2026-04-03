@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -84,7 +85,7 @@ class FilterAgent(BaseAgent):
             score = min(100, score + 10)
 
         for pref in s.prefer_companies_list():
-            if pref and pref in company or pref in desc:
+            if pref and (pref in company or pref in desc):
                 score = min(100, score + 5)
                 break
 
@@ -120,27 +121,39 @@ class FilterAgent(BaseAgent):
                 "prefilter_rejected": True,
             }
 
-        prompt = f"""You are a job matching expert. Analyze this job against the applicant resume.
-Return ONLY valid JSON with exactly these keys:
+        prompt = f"""You are a senior technical recruiter matching candidates to jobs.
+Score this job against the applicant's resume across 5 dimensions.
+
+Return ONLY valid JSON:
 {{
-  "match_score": <integer 0-100>,
-  "reasons": ["reason1", "reason2", "reason3"],
-  "skills_gap": ["missing_skill1"],
-  "tailoring_hints": ["hint1", "hint2", "hint3"],
-  "apply_recommended": <true if score >= 70 else false>,
-  "match_explanation": "Two sentences explaining fit in plain English.",
-  "why_apply": "One compelling reason to apply.",
-  "red_flags": ["optional concern such as heavy travel or stack mismatch"],
-  "salary_estimate": "Estimated India CTC range in INR (e.g. '18-24 LPA') based on title, company, description; say 'Unknown' if unclear."
+  "match_score": <integer 0-100, weighted average of dimension scores>,
+  "dimension_scores": {{
+    "skills_alignment": <0-100 — do their tech skills match requirements?>,
+    "experience_level": <0-100 — does their seniority match the JD level?>,
+    "domain_relevance": <0-100 — industry/domain overlap?>,
+    "location_fit":     <0-100 — location/remote match?>,
+    "growth_potential": <0-100 — is this a good career move?>
+  }},
+  "reasons": ["top 3 reasons this is a good match"],
+  "skills_gap": ["skills mentioned in JD that the applicant lacks"],
+  "tailoring_hints": ["3 specific tips to tailor the resume for this job"],
+  "apply_recommended": <true if match_score >= 70>,
+  "match_explanation": "2-sentence plain-English summary of fit.",
+  "why_apply": "One compelling specific reason to apply (company, tech, growth).",
+  "red_flags": ["any concerns: location mismatch, over-qualified, startup risk, etc."],
+  "salary_estimate": "Estimated India CTC '15-22 LPA' from context, or 'Unknown'",
+  "ats_keywords": ["top 8 keywords from JD to include in resume for ATS"]
 }}
 
 Job Title: {job.get('title', '')}
 Company: {job.get('company', '')}
 Location: {job.get('location', '')}
-Description: {str(job.get('description', ''))[:2000]}
+Source: {job.get('source', '')}
+Description:
+{str(job.get('description', ''))[:2500]}
 
 Applicant Resume:
-{self.base_resume[:1500]}"""
+{self.base_resume[:1800]}"""
 
         result = await self.llm.extract_json(prompt, use_cache=True)
         raw_score = int(result.get("match_score", 0))
@@ -159,38 +172,59 @@ Applicant Resume:
                 "why_apply": str(result.get("why_apply", ""))[:1000],
                 "red_flags": result.get("red_flags", []),
                 "salary_estimate": str(result.get("salary_estimate", ""))[:500],
+                "ats_keywords": result.get("ats_keywords", []),
             },
         )
         result["prefilter_rejected"] = False
         return result
 
+    async def _process_app(self, app: dict) -> tuple[str, int]:
+        """Score one application; return (new_status, score)."""
+        job = await self.db.select_one("jobs", {"id": app["job_id"]})
+        if not job:
+            return "REJECTED", 0
+        scores = await self.score_job(job)
+        score = int(scores.get("match_score", 0))
+        pre_reject = bool(scores.get("prefilter_rejected"))
+        if pre_reject or score < self.settings.match_threshold:
+            new_status = "REJECTED"
+        else:
+            new_status = "FILTERED"
+        await self.db.update("applications", app["id"], {"status": new_status})
+        await self.log(f"{job['title']} @ {job['company']} → {score}% → {new_status}")
+        return new_status, score
+
     async def run(self) -> dict:
-        """Score all DISCOVERED applications."""
+        """Score all DISCOVERED applications (up to 5 concurrent LLM calls)."""
 
         await self.log("FilterAgent starting...")
-        apps = await self.db.select("applications", {"status": "DISCOVERED"}, limit=100, offset=0)
+        apps = await self.db.select("applications", {"status": "DISCOVERED"}, limit=150, offset=0)
         await self.log(f"Found {len(apps)} jobs to score")
 
         filtered = 0
         rejected = 0
-        for app in apps:
-            try:
-                job = await self.db.select_one("jobs", {"id": app["job_id"]})
-                if not job:
-                    continue
-                scores = await self.score_job(job)
-                score = int(scores.get("match_score", 0))
-                pre_reject = bool(scores.get("prefilter_rejected"))
-                if pre_reject or score < self.settings.match_threshold:
-                    await self.db.update("applications", app["id"], {"status": "REJECTED"})
-                    rejected += 1
+        errors = 0
+
+        # Process in batches of 5 to avoid rate-limiting
+        BATCH = 5
+        for i in range(0, len(apps), BATCH):
+            batch = apps[i: i + BATCH]
+            tasks = [self._process_app(app) for app in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    await self.log(f"Score error: {res}", "warning")
+                    errors += 1
                 else:
-                    await self.db.update("applications", app["id"], {"status": "FILTERED"})
-                    filtered += 1
-                await self.log(f"{job['title']} @ {job['company']} → {score}%")
-            except Exception as exc:
-                await self.log(f"Score error: {exc}", "warning")
+                    status, _ = res
+                    if status == "FILTERED":
+                        filtered += 1
+                    else:
+                        rejected += 1
+            # Small pause between batches to respect rate limits
+            if i + BATCH < len(apps):
+                await asyncio.sleep(1)
 
         await self.record_run("completed", filtered + rejected)
-        await self.log(f"FilterAgent done. Filtered: {filtered}, Rejected: {rejected}")
-        return {"filtered": filtered, "rejected": rejected}
+        await self.log(f"FilterAgent done. Filtered: {filtered}, Rejected: {rejected}, Errors: {errors}")
+        return {"filtered": filtered, "rejected": rejected, "errors": errors}

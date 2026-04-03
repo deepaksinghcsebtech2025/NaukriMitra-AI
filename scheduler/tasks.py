@@ -95,23 +95,31 @@ def get_scheduler() -> AsyncIOScheduler:
             IntervalTrigger(hours=s.scrape_interval_hours),
             id="scrape_filter",
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=None,
         )
         _scheduler.add_job(
             run_resume_and_apply,
             IntervalTrigger(hours=s.apply_interval_hours),
             id="resume_apply",
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=None,
         )
         _scheduler.add_job(
             run_daily_summary,
             CronTrigger(hour=s.daily_summary_hour, minute=0),
             id="daily_summary",
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=None,
         )
         _scheduler.add_job(
             run_cleanup,
             CronTrigger(hour=3, minute=0),
             id="cleanup",
             replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=None,
         )
     return _scheduler

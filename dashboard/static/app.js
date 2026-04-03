@@ -1,4 +1,9 @@
-/* NaukriMitra-AI — vanilla dashboard */
+/* Ultra Job Agent — vanilla dashboard v2 */
+
+// Register service worker for PWA / offline support
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+}
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -30,6 +35,16 @@ function showModal(title, body) {
 function hideModal() {
   const ov = $("#modal-overlay");
   if (ov) ov.hidden = true;
+}
+
+function showToast(msg, type = "info") {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  container.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
 }
 
 function drawBarChart(canvas, labels, values, colors) {
@@ -155,6 +170,29 @@ let appsCache = [];
 let appFilter = "all";
 let appSearch = "";
 
+async function refreshDbStatus() {
+  const pill = $("#db-pill");
+  if (!pill) return;
+  try {
+    const r = await fetchJSON("/api/db-status");
+    if (r.status === "ok") {
+      pill.textContent = "DB OK";
+      pill.className = "pill pill-ok";
+    } else if (r.status === "unreachable") {
+      pill.textContent = "DB paused";
+      pill.className = "pill pill-warn";
+      pill.title = r.message || "Supabase project may be paused";
+    } else {
+      pill.textContent = "DB not set";
+      pill.className = "pill pill-muted";
+      pill.title = r.message || "";
+    }
+  } catch {
+    pill.textContent = "DB ?";
+    pill.className = "pill pill-muted";
+  }
+}
+
 async function refreshStats() {
   try {
     const s = await fetchJSON("/api/stats");
@@ -171,6 +209,7 @@ async function refreshStats() {
     $("#conn-pill").textContent = "API down";
     console.error(e);
   }
+  refreshDbStatus();
 }
 
 function updateWorkflow(stats) {
@@ -193,20 +232,22 @@ function updateWorkflow(stats) {
 }
 
 function renderCharts(stats, jobs) {
-  const boards = { linkedin: 0, indeed: 0, other: 0 };
+  const boards = { linkedin: 0, indeed: 0, naukri: 0, glassdoor: 0, other: 0 };
   (jobs || []).forEach((j) => {
     const src = (j.source || "").toLowerCase();
     if (src.includes("linkedin")) boards.linkedin += 1;
     else if (src.includes("indeed")) boards.indeed += 1;
+    else if (src.includes("naukri")) boards.naukri += 1;
+    else if (src.includes("glassdoor")) boards.glassdoor += 1;
     else boards.other += 1;
   });
   const c1 = $("#chart-boards");
   if (c1)
     drawBarChart(
       c1,
-      ["LinkedIn", "Indeed", "Other"],
-      [boards.linkedin, boards.indeed, boards.other],
-      ["#6c63ff", "#ff6584", "#43e97b"]
+      ["LinkedIn", "Indeed", "Naukri", "Glassdoor", "Other"],
+      [boards.linkedin, boards.indeed, boards.naukri, boards.glassdoor, boards.other],
+      ["#6c63ff", "#ff6584", "#43e97b", "#f7971e", "#9090a8"]
     );
 
   let b90 = 0,
@@ -418,6 +459,7 @@ function filterApplicationsRows() {
     if (appFilter !== "all") {
       if (appFilter === "APPLIED" && st !== "APPLIED" && st !== "SUBMITTED") return;
       if (appFilter === "INTERVIEW" && st !== "INTERVIEW") return;
+      if (appFilter === "OFFER" && st !== "OFFER") return;
       if (appFilter === "REJECTED" && st !== "REJECTED") return;
     }
     if (appSearch) {
@@ -442,12 +484,27 @@ function filterApplicationsRows() {
     const tr = document.createElement("tr");
     const aid = row.id;
     const jid = job.id;
+    // Format salary
+    let salaryText = "—";
+    if (job.salary_min && job.salary_max) {
+      const fmt = (n) => n >= 100000 ? `₹${(n/100000).toFixed(1)}L` : `₹${n.toLocaleString()}`;
+      salaryText = `${fmt(job.salary_min)}–${fmt(job.salary_max)}`;
+    } else if (job.salary_estimate) {
+      salaryText = job.salary_estimate.slice(0, 14);
+    }
+    // Remote type badge
+    const remoteType = job.remote_type || "unknown";
+    const remoteBadge = remoteType !== "unknown"
+      ? `<span class="status-pill status-${remoteType === 'remote' ? 'APPLIED' : remoteType === 'hybrid' ? 'FILTERED' : 'DISCOVERED'}">${remoteType}</span>`
+      : "—";
     tr.innerHTML = `
       <td>${job.company || ""}</td>
       <td>${job.title || ""}</td>
       <td><span class="status-pill">${job.source || "—"}</span></td>
       <td><div class="score-wrap"><div class="score-bar" style="width:${Math.min(100, score)}%"></div>${score}%</div></td>
       <td>${atsBadge(row.ats_score)}</td>
+      <td style="font-size:12px;white-space:nowrap;">${salaryText}</td>
+      <td>${remoteBadge}</td>
       <td><span class="status-pill status-${st}">${st}</span></td>
       <td>${(row.applied_at || "").slice(0, 10)}</td>
       <td>${
@@ -641,35 +698,55 @@ async function loadConfigForm() {
   sync();
 }
 
-$("#config-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const data = {};
-  new FormData(form).forEach((v, k) => {
-    data[k] = v;
+function setupConfigForm() {
+  const form = $("#config-form");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = {};
+    new FormData(e.target).forEach((v, k) => {
+      data[k] = v;
+    });
+    try {
+      await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      showToast("Overrides saved to Redis.", "success");
+    } catch (err) {
+      showToast("Failed to save overrides.", "error");
+    }
   });
-  await fetch("/api/config", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  alert("Saved overrides to Redis.");
-});
+}
+
+function switchTab(tab) {
+  // Update sidebar buttons
+  $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  // Update mobile nav buttons
+  $$(".mobile-nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  // Show panel
+  $$(".panel").forEach((p) => p.classList.remove("active"));
+  const panel = $(`#panel-${tab}`);
+  if (panel) panel.classList.add("active");
+  // Load data
+  if (tab === "pipeline") loadPipeline().catch(console.error);
+  if (tab === "applications") loadApplications().catch(console.error);
+  if (tab === "analytics") loadAnalytics().catch(console.error);
+  if (tab === "config") loadConfigForm().catch(console.error);
+}
 
 function setupTabs() {
   $$(".nav-btn").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      $$(".nav-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const tab = btn.dataset.tab;
-      $$(".panel").forEach((p) => p.classList.remove("active"));
-      $(`#panel-${tab}`).classList.add("active");
-      if (tab === "pipeline") loadPipeline().catch(console.error);
-      if (tab === "applications") loadApplications().catch(console.error);
-      if (tab === "analytics") loadAnalytics().catch(console.error);
-      if (tab === "config") loadConfigForm().catch(console.error);
-    })
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab))
   );
+  // Mobile nav mirrors sidebar
+  $$(".mobile-nav-btn").forEach((btn) =>
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab))
+  );
+  // Deep-link: ?tab=applications
+  const urlTab = new URLSearchParams(location.search).get("tab");
+  if (urlTab) switchTab(urlTab);
 }
 
 function setupApplicationsFilters() {
@@ -732,6 +809,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupApplicationsFilters();
   setupAgentToggles();
   setupPrepPanel();
+  setupConfigForm();
   $("#modal-close") &&
     $("#modal-close").addEventListener("click", () => hideModal());
   $("#modal-overlay") &&
@@ -754,6 +832,59 @@ document.addEventListener("DOMContentLoaded", () => {
         if (out) out.textContent = String(e);
       }
     });
+
+  // Resume upload handler
+  const uploadBtn = document.getElementById("btn-upload-resume");
+  const uploadInput = document.getElementById("resume-upload-input");
+  const uploadStatus = document.getElementById("upload-status");
+  if (uploadBtn && uploadInput) {
+    uploadBtn.addEventListener("click", async () => {
+      const file = uploadInput.files && uploadInput.files[0];
+      if (!file) {
+        showToast("Please select a file first.", "error");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+      uploadBtn.disabled = true;
+      if (uploadStatus) uploadStatus.textContent = "Uploading…";
+      try {
+        const resp = await fetch("/api/resume/upload", { method: "POST", body: formData });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.detail || resp.statusText);
+        showToast(`Resume uploaded: ${result.filename}`, "success");
+        if (uploadStatus) {
+          uploadStatus.textContent = result.saved_as_base
+            ? `✓ Saved as base resume. Text extracted: ${result.text_extracted ? "yes" : "no"}.`
+            : `✓ Uploaded (no text extracted — use TXT for best results).`;
+        }
+      } catch (err) {
+        showToast(`Upload failed: ${err.message}`, "error");
+        if (uploadStatus) uploadStatus.textContent = `Error: ${err.message}`;
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  }
+
+  // PWA install prompt
+  let deferredInstallPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const banner = document.getElementById("pwa-install-banner");
+    if (banner) banner.style.display = "block";
+  });
+  const installBanner = document.getElementById("pwa-install-banner");
+  if (installBanner) {
+    installBanner.addEventListener("click", async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === "accepted") installBanner.style.display = "none";
+      deferredInstallPrompt = null;
+    });
+  }
 
   refreshStats();
   statsTimer = setInterval(refreshStats, 30000);

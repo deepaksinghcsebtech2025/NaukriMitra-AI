@@ -21,24 +21,32 @@ class ATSCheckerAgent(BaseAgent):
         )
 
     async def check_resume(self, resume_text: str, job_description: str) -> dict:
-        """Return structured ATS-style analysis."""
+        """Return structured ATS analysis with sub-scores."""
 
-        prompt = f"""You are an ATS and recruiting expert. Compare the resume to the job description.
-Return ONLY valid JSON with these exact keys:
+        prompt = f"""You are a senior ATS and technical recruiting expert. Analyze resume vs job description.
+
+Return ONLY valid JSON:
 {{
-  "ats_score": <integer 0-100>,
-  "missing_keywords": ["keyword that should appear but is absent"],
-  "present_keywords": ["important keyword found in resume"],
-  "format_issues": ["concise format or structure issue, if any"],
-  "improvements": ["actionable improvement tip"],
-  "overall_grade": "A" or "B" or "C" or "D"
+  "ats_score": <integer 0-100, overall ATS compatibility>,
+  "sub_scores": {{
+    "keyword_match": <0-100, % of JD keywords present in resume>,
+    "skills_coverage": <0-100, technical skills alignment>,
+    "experience_format": <0-100, resume structure/readability for ATS>,
+    "quantified_impact": <0-100, has measurable achievements with numbers>
+  }},
+  "missing_keywords": ["critical JD keyword missing from resume — max 10"],
+  "present_keywords": ["strong matching keyword found — max 10"],
+  "format_issues": ["specific ATS-unfriendly formatting issue"],
+  "improvements": ["concrete, specific improvement with example"],
+  "overall_grade": "A" | "B" | "C" | "D",
+  "quick_wins": ["1-line change to instantly improve score — max 3"]
 }}
 
-Job description (truncated):
-{job_description[:3500]}
+Job description:
+{job_description[:3000]}
 
-Resume (truncated):
-{resume_text[:3500]}"""
+Resume:
+{resume_text[:3000]}"""
 
         return await self.llm.extract_json(prompt, use_cache=True)
 

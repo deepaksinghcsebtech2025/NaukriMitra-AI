@@ -1,0 +1,30 @@
+# systemd service for Ultra Job Agent (non-Docker self-hosted deploy)
+# Install: sudo cp deploy/systemd.service /etc/systemd/system/ultra-job-agent.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now ultra-job-agent
+
+[Unit]
+Description=Ultra Job Agent — AI Job Application Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/ultra-job-agent
+ExecStart=/opt/ultra-job-agent/.venv/bin/python main.py serve
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ultra-job-agent
+
+# Environment
+EnvironmentFile=/opt/ultra-job-agent/.env
+Environment=PYTHONUNBUFFERED=1
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

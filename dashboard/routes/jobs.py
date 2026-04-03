@@ -18,40 +18,112 @@ router = APIRouter()
 async def list_jobs(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    source: Optional[str] = None,
+    remote_type: Optional[str] = None,
     min_score: int = 0,
+    min_salary: Optional[int] = None,
+    sort: str = "score",     # "score" | "date" | "salary"
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    """List jobs joined with application status for dashboard tables."""
+    """List jobs joined with application status — filterable and sortable."""
 
     db = get_db_client()
-    jobs = await db.select("jobs", limit=500, offset=0)
-    apps = await db.select("applications", limit=500, offset=0)
+    jobs = await db.select("jobs", limit=2000, offset=0)
+    apps = await db.select("applications", limit=2000, offset=0)
     app_map = {a["job_id"]: a for a in apps}
 
     result: list[dict] = []
     for job in jobs:
         app = app_map.get(job["id"], {})
         app_status = app.get("status", "UNKNOWN")
+
         if status and app_status != status:
             continue
-        if min_score and job.get("match_score", 0) < min_score:
+        score = int(job.get("match_score") or 0)
+        if min_score and score < min_score:
             continue
+        if min_salary:
+            sal = int(job.get("salary_min") or 0)
+            if sal > 0 and sal < min_salary:
+                continue
+        if source:
+            if source.lower() not in (job.get("source") or "").lower():
+                continue
+        if remote_type:
+            if remote_type.lower() != (job.get("remote_type") or "unknown").lower():
+                continue
         if search:
             q = search.lower()
-            if q not in job.get("title", "").lower() and q not in job.get("company", "").lower():
+            haystack = f"{job.get('title','')} {job.get('company','')} {job.get('description','')[:200]}".lower()
+            if q not in haystack:
                 continue
-        result.append(
-            {
-                **job,
-                "app_status": app_status,
-                "app_id": app.get("id"),
-                "applied_at": app.get("applied_at"),
-                "resume_path": app.get("resume_path"),
-            }
-        )
 
-    return {"jobs": result[offset : offset + limit], "total": len(result)}
+        result.append({
+            **job,
+            "app_status": app_status,
+            "app_id": app.get("id"),
+            "applied_at": app.get("applied_at"),
+            "resume_path": app.get("resume_path"),
+            "ats_score": app.get("ats_score"),
+            "cover_letter": app.get("cover_letter"),
+        })
+
+    # Sort
+    if sort == "date":
+        result.sort(key=lambda j: j.get("discovered_at") or "", reverse=True)
+    elif sort == "salary":
+        result.sort(key=lambda j: int(j.get("salary_min") or 0), reverse=True)
+    else:
+        result.sort(key=lambda j: int(j.get("match_score") or 0), reverse=True)
+
+    return {"jobs": result[offset: offset + limit], "total": len(result)}
+
+
+@router.get("/jobs/search")
+async def search_jobs(
+    q: str = "",
+    source: Optional[str] = None,
+    remote_type: Optional[str] = None,
+    min_score: int = 0,
+    limit: int = 20,
+) -> dict:
+    """Full-text job search with highlighted matches."""
+
+    db = get_db_client()
+    jobs = await db.select("jobs", limit=2000, offset=0)
+
+    matches = []
+    q_lower = q.lower()
+    for job in jobs:
+        if source and source.lower() not in (job.get("source") or "").lower():
+            continue
+        if remote_type and remote_type != job.get("remote_type"):
+            continue
+        score = int(job.get("match_score") or 0)
+        if score < min_score:
+            continue
+        title = job.get("title", "")
+        company = job.get("company", "")
+        desc = (job.get("description") or "")[:300]
+        haystack = f"{title} {company} {desc}".lower()
+        if q_lower and q_lower not in haystack:
+            continue
+        matches.append({
+            "id": job["id"],
+            "title": title,
+            "company": company,
+            "location": job.get("location", ""),
+            "source": job.get("source", ""),
+            "match_score": score,
+            "salary_estimate": job.get("salary_estimate", ""),
+            "remote_type": job.get("remote_type", "unknown"),
+            "apply_url": job.get("apply_url", ""),
+            "discovered_at": job.get("discovered_at", ""),
+        })
+
+    matches.sort(key=lambda j: j["match_score"], reverse=True)
+    return {"results": matches[:limit], "total": len(matches), "query": q}
 
 
 @router.get("/pipeline")
@@ -99,6 +171,20 @@ async def get_stats() -> dict:
         if key in stats and isinstance(stats[key], int):
             out[key] = stats[key]
     return out
+
+
+@router.get("/db-status")
+async def db_status() -> dict:
+    """Check whether the Supabase connection is working."""
+    db = get_db_client()
+    if not db._configured:
+        return {"status": "not_configured", "message": "Set SUPABASE_URL and SUPABASE_KEY in .env"}
+    if db._unreachable:
+        return {
+            "status": "unreachable",
+            "message": "Supabase project may be paused. Visit https://supabase.com/dashboard to unpause.",
+        }
+    return {"status": "ok"}
 
 
 @router.get("/ats-check/{job_id}")

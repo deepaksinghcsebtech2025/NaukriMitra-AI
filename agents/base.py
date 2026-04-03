@@ -39,6 +39,7 @@ class BaseAgent:
                 "status": status,
                 "jobs_processed": count,
                 "error_msg": error,
+                "started_at": self.started_at.isoformat(),
                 "ended_at": datetime.utcnow().isoformat(),
             },
         )

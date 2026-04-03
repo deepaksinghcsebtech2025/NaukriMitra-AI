@@ -7,6 +7,8 @@ import importlib
 
 from fastapi import APIRouter
 
+from core.logger import logger
+
 router = APIRouter()
 
 AGENT_MAP = {
@@ -32,11 +34,19 @@ async def _run_agent(module_path: str) -> None:
     await cls().run()
 
 
+def _task_error_handler(task: asyncio.Task) -> None:
+    """Log unhandled exceptions from background agent tasks."""
+
+    if not task.cancelled() and task.exception():
+        logger.error("Background agent task failed: {}", task.exception())
+
+
 @router.post("/agents/{name}/run")
 async def run_agent(name: str) -> dict:
     """Fire-and-forget agent execution."""
 
     if name not in AGENT_MAP:
         return {"error": f"Unknown agent: {name}"}
-    asyncio.create_task(_run_agent(AGENT_MAP[name]))
+    task = asyncio.create_task(_run_agent(AGENT_MAP[name]))
+    task.add_done_callback(_task_error_handler)
     return {"started": True, "agent": name}

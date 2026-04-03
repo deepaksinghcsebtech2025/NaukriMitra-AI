@@ -12,6 +12,25 @@ from core.config import get_settings
 from core.exceptions import DBError
 from core.logger import logger
 
+# Keywords that indicate a network/DNS/connectivity failure (not a data error).
+_CONN_ERROR_HINTS = (
+    "nodename nor servname",
+    "name or service not known",
+    "connecterror",
+    "connection refused",
+    "network is unreachable",
+    "timed out",
+    "connect timeout",
+    "errno 8",
+    "getaddrinfo",
+)
+
+
+def _is_connection_error(exc: Exception) -> bool:
+    """Return True if the exception looks like a network/DNS failure."""
+    msg = str(exc).lower()
+    return any(hint in msg for hint in _CONN_ERROR_HINTS)
+
 
 class DBClient:
     """Thin async wrapper around sync supabase-py (executes in a thread pool)."""
@@ -23,15 +42,25 @@ class DBClient:
         url = settings.supabase_url or "https://placeholder.supabase.co"
         key = settings.supabase_key or "placeholder-anon-key"
         if not settings.supabase_url or not settings.supabase_key:
-            logger.warning("Supabase URL or key missing — using placeholder client (set .env for real use)")
+            logger.warning(
+                "Supabase URL or key missing — using placeholder client. "
+                "Set SUPABASE_URL and SUPABASE_KEY in .env"
+            )
         self.client: Client = create_client(url, key)
         self._configured: bool = bool(settings.supabase_url and settings.supabase_key)
+        # Set to True after first confirmed connection error to suppress repeated noise.
+        self._unreachable: bool = False
 
     async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """Insert one row; return first row from response."""
 
         if not self._configured:
             raise DBError("Supabase is not configured — set SUPABASE_URL and SUPABASE_KEY in .env")
+        if self._unreachable:
+            raise DBError(
+                "Supabase is unreachable — project may be paused. "
+                "Visit https://supabase.com/dashboard to unpause it."
+            )
 
         def _run() -> dict[str, Any]:
             response = self.client.table(table).insert(data).execute()
@@ -40,8 +69,18 @@ class DBClient:
             raise DBError(f"Insert returned no data for table {table}")
 
         try:
-            return await asyncio.to_thread(_run)
+            result = await asyncio.to_thread(_run)
+            self._unreachable = False
+            return result
+        except DBError:
+            raise
         except Exception as exc:
+            if _is_connection_error(exc):
+                self._unreachable = True
+                raise DBError(
+                    "Supabase unreachable — project may be paused. "
+                    "Visit https://supabase.com/dashboard to unpause it."
+                ) from exc
             raise DBError(str(exc)) from exc
 
     async def update(self, table: str, record_id: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -49,6 +88,8 @@ class DBClient:
 
         if not self._configured:
             raise DBError("Supabase is not configured — set SUPABASE_URL and SUPABASE_KEY in .env")
+        if self._unreachable:
+            raise DBError("Supabase is unreachable — project may be paused.")
 
         def _run() -> dict[str, Any]:
             response = self.client.table(table).update(data).eq("id", record_id).execute()
@@ -57,8 +98,15 @@ class DBClient:
             return {}
 
         try:
-            return await asyncio.to_thread(_run)
+            result = await asyncio.to_thread(_run)
+            self._unreachable = False
+            return result
+        except DBError:
+            raise
         except Exception as exc:
+            if _is_connection_error(exc):
+                self._unreachable = True
+                raise DBError("Supabase unreachable — project may be paused.") from exc
             raise DBError(str(exc)) from exc
 
     async def select(
@@ -68,11 +116,15 @@ class DBClient:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Select rows with optional equality filters."""
+        """Select rows with optional equality filters.
+
+        Returns an empty list on network/connection errors so the dashboard
+        can still render instead of returning HTTP 500.
+        """
 
         filters = filters or {}
 
-        if not self._configured:
+        if not self._configured or self._unreachable:
             return []
 
         def _run() -> list[dict[str, Any]]:
@@ -83,8 +135,21 @@ class DBClient:
             return response.data or []
 
         try:
-            return await asyncio.to_thread(_run)
+            result = await asyncio.to_thread(_run)
+            self._unreachable = False  # reset on success
+            return result
         except Exception as exc:
+            if _is_connection_error(exc):
+                if not self._unreachable:
+                    logger.warning(
+                        "Supabase unreachable ({}). "
+                        "Check that your project is not paused at https://supabase.com/dashboard "
+                        "and that SUPABASE_URL / SUPABASE_KEY are correct in .env. "
+                        "Returning empty data until connection is restored.",
+                        exc,
+                    )
+                self._unreachable = True
+                return []
             raise DBError(str(exc)) from exc
 
     async def select_one(
@@ -96,11 +161,14 @@ class DBClient:
         return rows[0] if rows else None
 
     async def count(self, table: str, filters: Optional[dict[str, Any]] = None) -> int:
-        """Exact count with optional filters."""
+        """Exact count with optional filters.
+
+        Returns 0 on network/connection errors.
+        """
 
         filters = filters or {}
 
-        if not self._configured:
+        if not self._configured or self._unreachable:
             return 0
 
         def _run() -> int:
@@ -111,8 +179,13 @@ class DBClient:
             return int(result.count or 0)
 
         try:
-            return await asyncio.to_thread(_run)
+            result = await asyncio.to_thread(_run)
+            self._unreachable = False
+            return result
         except Exception as exc:
+            if _is_connection_error(exc):
+                self._unreachable = True
+                return 0
             raise DBError(str(exc)) from exc
 
     async def delete_agent_runs_older_than_days(self, days: int = 30) -> None:

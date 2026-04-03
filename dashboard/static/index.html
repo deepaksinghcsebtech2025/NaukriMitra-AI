@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NaukriMitra-AI</title>
+  <title>Ultra Job Agent</title>
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Job Agent" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="apple-touch-icon" href="/static/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -15,12 +22,13 @@
       <div class="brand">
         <span class="brand-mark">⚡</span>
         <div>
-          <div class="brand-title">NaukriMitra-AI</div>
+          <div class="brand-title">Ultra Job Agent</div>
           <div class="brand-sub">Autonomous apply · ATS · Prep · Analytics</div>
         </div>
       </div>
       <div class="topbar-meta">
         <span id="conn-pill" class="pill pill-muted">API</span>
+        <span id="db-pill" class="pill pill-muted">DB</span>
         <span id="ws-pill" class="pill pill-muted">Logs WS</span>
       </div>
     </header>
@@ -138,6 +146,7 @@
             <button class="chip active" data-filter="all">All</button>
             <button class="chip" data-filter="APPLIED">Applied</button>
             <button class="chip" data-filter="INTERVIEW">Interview</button>
+            <button class="chip" data-filter="OFFER">Offer</button>
             <button class="chip" data-filter="REJECTED">Rejected</button>
           </div>
         </div>
@@ -145,7 +154,7 @@
           <table class="data-table" id="apps-table">
             <thead>
               <tr>
-                <th>Company</th><th>Role</th><th>Source</th><th>Score</th><th>ATS</th><th>Status</th><th>Applied</th><th>Resume</th><th>Actions</th>
+                <th>Company</th><th>Role</th><th>Source</th><th>Score</th><th>ATS</th><th>Salary</th><th>Remote</th><th>Status</th><th>Applied</th><th>Resume</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="apps-body"></tbody>
@@ -211,6 +220,21 @@
 
       <section id="panel-config" class="panel">
         <h2 class="panel-title">Configuration</h2>
+
+        <!-- Resume upload card -->
+        <div class="card config-form" style="margin-bottom:1.5rem;">
+          <fieldset>
+            <legend>Upload Resume</legend>
+            <p class="muted small" style="margin:0 0 12px;">
+              Upload your resume (PDF, DOCX, or TXT). It will be used as the base for all tailored applications.
+            </p>
+            <input type="file" id="resume-upload-input" accept=".pdf,.docx,.txt,.md"
+                   style="margin-bottom:10px;display:block;" />
+            <button type="button" class="btn primary" id="btn-upload-resume">Upload resume</button>
+            <p id="upload-status" class="muted small" style="margin-top:8px;"></p>
+          </fieldset>
+        </div>
+
         <form id="config-form" class="card config-form">
           <fieldset>
             <legend>Applicant</legend>
@@ -256,6 +280,19 @@
       </section>
     </main>
   </div>
+  <!-- Mobile bottom navigation (shown only on small screens) -->
+  <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile navigation">
+    <button class="mobile-nav-btn active" data-tab="dashboard"><span class="icon">📊</span>Dashboard</button>
+    <button class="mobile-nav-btn" data-tab="pipeline"><span class="icon">⚡</span>Pipeline</button>
+    <button class="mobile-nav-btn" data-tab="applications"><span class="icon">📋</span>Apps</button>
+    <button class="mobile-nav-btn" data-tab="jarvis"><span class="icon">🤖</span>Jarvis</button>
+    <button class="mobile-nav-btn" data-tab="config"><span class="icon">⚙️</span>Config</button>
+  </nav>
+
+  <!-- PWA install prompt -->
+  <div id="pwa-install-banner">⚡ Install app for offline use</div>
+
+  <div id="toast-container"></div>
   <div id="modal-overlay" class="modal-overlay" hidden>
     <div class="modal-card card">
       <div class="modal-head">

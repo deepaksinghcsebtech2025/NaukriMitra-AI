@@ -347,13 +347,17 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
   color: var(--text2);
   margin-bottom: 10px;
 }
-.config-form input, .config-form textarea {
+.config-form input, .config-form textarea, .config-form select {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface2);
   color: var(--text);
   font-family: var(--sans);
+}
+.config-form select option {
+  background: var(--surface2);
+  color: var(--text);
 }
 
 .btn {
@@ -383,7 +387,8 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
 }
 .pill-muted { color: var(--text3); }
 .pill-accent { color: var(--accent); border-color: rgba(108,99,255,0.4); }
-.pill-ok { color: var(--accent3); border-color: rgba(67,233,123,0.4); }
+.pill-ok   { color: var(--accent3); border-color: rgba(67,233,123,0.4); }
+.pill-warn { color: var(--accent4); border-color: rgba(247,151,30,0.5); }
 
 .muted { color: var(--text2); }
 .small { font-size: 12px; }
@@ -497,4 +502,148 @@ code { font-family: var(--mono); font-size: 12px; color: var(--accent4); }
   }
   .sidebar { flex-direction: row; flex-wrap: wrap; }
   .jarvis-grid { grid-template-columns: 1fr; }
+}
+
+/* Toast notifications */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+.toast {
+  padding: 12px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: toastIn 0.25s ease, toastOut 0.35s ease 2.5s forwards;
+  pointer-events: all;
+}
+.toast.success { border-color: rgba(67, 233, 123, 0.45); color: var(--accent3); }
+.toast.error   { border-color: rgba(255, 101, 132, 0.45); color: var(--accent2); }
+.toast.info    { border-color: rgba(108, 99, 255, 0.45); color: var(--accent); }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toastOut {
+  from { opacity: 1; }
+  to   { opacity: 0; pointer-events: none; }
+}
+
+/* ======================================================
+   Mobile & PWA enhancements
+   ====================================================== */
+
+/* Bottom nav for mobile (hidden on desktop) */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 60px;
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  z-index: 500;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 8px;
+  safe-area-inset-bottom: env(safe-area-inset-bottom);
+}
+.mobile-nav-btn {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 3px; color: var(--text2); font-size: 11px; cursor: pointer;
+  background: none; border: none; padding: 4px 8px; border-radius: 8px;
+  transition: color 0.15s, background 0.15s;
+}
+.mobile-nav-btn span.icon { font-size: 20px; }
+.mobile-nav-btn.active, .mobile-nav-btn:hover {
+  color: var(--accent); background: rgba(108, 99, 255, 0.12);
+}
+
+@media (max-width: 680px) {
+  .mobile-nav { display: flex; }
+
+  /* Hide desktop sidebar on small screens */
+  .sidebar { display: none !important; }
+
+  /* Push main content above bottom nav */
+  .main { padding-bottom: 72px; }
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas: "top" "main";
+  }
+
+  /* Compact topbar */
+  .topbar { padding: 0 12px; }
+  .brand-sub { display: none; }
+  .topbar-meta { gap: 4px; }
+  .pill { font-size: 10px; padding: 2px 6px; }
+
+  /* Stack charts vertically */
+  .charts-row { flex-direction: column; }
+  .chart-card { min-width: unset !important; }
+
+  /* Full-width stat cards in 2 columns */
+  .grid-stats { grid-template-columns: 1fr 1fr; }
+
+  /* Horizontal scroll for table on mobile */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 700px; }
+
+  /* Make kanban horizontal scroll */
+  .kanban { flex-direction: row; overflow-x: auto; flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch; padding-bottom: 16px; }
+  .kcol { min-width: 200px; }
+
+  /* Toolbar wraps tighter */
+  .toolbar { gap: 6px; }
+  .toolbar input, .toolbar select { font-size: 13px; }
+
+  /* Toasts at bottom center on mobile */
+  #toast-container { bottom: 72px; right: 12px; left: 12px; align-items: center; }
+
+  /* Log stream shorter on mobile */
+  .log-stream { height: 180px; }
+
+  /* Workflow wraps */
+  .workflow { flex-wrap: wrap; gap: 6px; }
+
+  /* Full-width modal on mobile */
+  .modal-card { width: 95vw; max-height: 85vh; overflow-y: auto; }
+}
+
+@media (max-width: 960px) and (min-width: 681px) {
+  .grid-stats { grid-template-columns: repeat(2, 1fr); }
+  .charts-row { flex-wrap: wrap; }
+  .chart-card { min-width: calc(50% - 12px); }
+}
+
+/* PWA standalone mode tweaks */
+@media (display-mode: standalone) {
+  .topbar { padding-top: env(safe-area-inset-top, 12px); height: auto; min-height: 64px; }
+  .mobile-nav { padding-bottom: env(safe-area-inset-bottom, 8px); height: auto; min-height: 60px; }
+}
+
+/* Smooth scrolling for whole app */
+html { scroll-behavior: smooth; }
+.main { scroll-behavior: smooth; }
+
+/* Install prompt banner */
+#pwa-install-banner {
+  display: none;
+  position: fixed; top: 68px; left: 50%; transform: translateX(-50%);
+  background: var(--accent); color: #fff; border-radius: 10px;
+  padding: 10px 20px; font-size: 13px; font-weight: 600; z-index: 600;
+  box-shadow: 0 4px 20px rgba(108,99,255,0.5); cursor: pointer;
+  animation: toastIn 0.3s ease;
 }
