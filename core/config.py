@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Supabase
     supabase_url: str = ""
     supabase_key: str = ""
+    supabase_jwt_secret: str = ""   # Dashboard → Project Settings → API → JWT Settings → JWT Secret
     database_url: str = ""
 
     # Upstash

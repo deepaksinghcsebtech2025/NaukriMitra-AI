@@ -302,6 +302,60 @@
       <pre id="modal-body" class="modal-body"></pre>
     </div>
   </div>
+  <!-- ═══ AUTH OVERLAY ═══ -->
+  <div id="auth-overlay" class="auth-overlay" style="display:none">
+    <div class="auth-card">
+      <div class="auth-logo">⚡</div>
+      <h2 class="auth-title">Ultra Job Agent</h2>
+      <p class="auth-sub">Autonomous job search &amp; apply</p>
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="showAuthTab('login')">Sign In</button>
+        <button class="auth-tab" onclick="showAuthTab('signup')">Sign Up</button>
+      </div>
+      <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+        <input id="login-email" type="email" placeholder="Email" required autocomplete="email" />
+        <input id="login-password" type="password" placeholder="Password" required autocomplete="current-password" />
+        <button type="submit" class="btn-primary btn-full" id="login-btn">Sign In</button>
+        <div id="login-error" class="auth-error"></div>
+      </form>
+      <form id="signup-form" class="auth-form" style="display:none" onsubmit="handleSignup(event)">
+        <input id="signup-name" type="text" placeholder="Full name" required />
+        <input id="signup-email" type="email" placeholder="Email" required autocomplete="email" />
+        <input id="signup-password" type="password" placeholder="Password (min 8 chars)" required minlength="8" />
+        <button type="submit" class="btn-primary btn-full" id="signup-btn">Create Account</button>
+        <div id="signup-error" class="auth-error"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ ONBOARDING CHATBOT ═══ -->
+  <div id="onboarding-modal" class="onboarding-modal" style="display:none">
+    <div class="onboarding-card">
+      <div class="onboarding-header">
+        <span class="ob-logo">🤖</span>
+        <div>
+          <div class="ob-title">Setup Assistant</div>
+          <div class="ob-sub">Let's get you ready in 2 minutes</div>
+        </div>
+        <button class="ob-skip-btn" onclick="skipOnboarding()" title="Skip setup">✕</button>
+      </div>
+      <div class="ob-progress-bar"><div class="ob-progress-fill" id="ob-progress-fill"></div></div>
+      <div class="ob-chat" id="ob-chat"></div>
+      <div id="ob-resume-upload" style="display:none" class="ob-resume-area">
+        <label class="ob-upload-btn">
+          📎 Upload Resume (PDF / DOCX)
+          <input type="file" id="ob-resume-file" accept=".pdf,.docx,.txt" style="display:none" onchange="handleOnboardingResume(this)" />
+        </label>
+        <div id="ob-upload-status"></div>
+      </div>
+      <div class="ob-input-row" id="ob-input-row">
+        <input type="text" id="ob-input" class="ob-input" placeholder="Type your answer…" autocomplete="off" onkeydown="if(event.key==='Enter')sendOnboardingMessage()" />
+        <button class="ob-send-btn" onclick="sendOnboardingMessage()">Send →</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
+  <script src="/static/auth.js"></script>
 </body>
 </html>

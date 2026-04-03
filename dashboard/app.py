@@ -21,6 +21,7 @@ from dashboard.routes import (
     config_routes,
     jobs,
     linkedin_routes,
+    onboarding,
     resume_routes,
     track,
     ws,
@@ -86,8 +87,10 @@ def create_app() -> FastAPI:
     if resumes_path.exists():
         app.mount("/resumes", StaticFiles(directory=str(resumes_path)), name="resumes")
 
-    # Auth routes (no /api prefix — /api/auth/login etc.)
+    # Auth routes
     app.include_router(auth_routes.router, prefix="/api")
+    # Onboarding chatbot
+    app.include_router(onboarding.router)
     # Core API routes
     app.include_router(jobs.router, prefix="/api")
     app.include_router(applications.router, prefix="/api")

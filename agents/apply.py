@@ -11,21 +11,39 @@ from playwright.async_api import async_playwright
 
 from agents.base import BaseAgent
 from core.exceptions import CaptchaError
+from core.resume_parser import get_parsed_resume
 
 
 class ApplyAgent(BaseAgent):
     """Submits TAILORED applications up to the daily quota."""
 
     FIELD_PATTERNS = {
-        "name":     ["name", "full_name", "fullname", "your_name", "applicant", "candidate_name"],
-        "email":    ["email", "e-mail", "email_address", "contact_email"],
-        "phone":    ["phone", "mobile", "telephone", "contact_number", "phone_number"],
-        "linkedin": ["linkedin", "linkedin_url", "linkedin_profile", "linkedin_link"],
-        "github":   ["github", "github_url", "portfolio", "website", "personal_website"],
-        "location": ["location", "city", "current_location", "address", "current_city"],
-        "cover":    ["cover", "cover_letter", "coverletter", "message", "why_us",
-                     "motivation", "additional_info", "why_interested"],
-        "years_exp": ["years_experience", "years_exp", "experience_years", "total_experience"],
+        # Contact
+        "name":       ["name", "full_name", "fullname", "your_name", "applicant", "candidate_name", "applicant_name"],
+        "email":      ["email", "e-mail", "email_address", "contact_email", "your_email"],
+        "phone":      ["phone", "mobile", "telephone", "contact_number", "phone_number", "mobile_number"],
+        "linkedin":   ["linkedin", "linkedin_url", "linkedin_profile", "linkedin_link"],
+        "github":     ["github", "github_url", "portfolio", "website", "personal_website", "portfolio_url"],
+        "location":   ["location", "city", "current_location", "address", "current_city", "residing"],
+        # Resume content
+        "cover":      ["cover", "cover_letter", "coverletter", "message", "why_us",
+                       "motivation", "additional_info", "why_interested", "about_yourself",
+                       "tell_us", "introduction", "personal_statement"],
+        "years_exp":  ["years_experience", "years_exp", "experience_years", "total_experience",
+                       "years_of_experience", "work_experience"],
+        "skills":     ["skills", "technical_skills", "key_skills", "core_skills",
+                       "technologies", "tech_stack", "expertise"],
+        "summary":    ["summary", "profile_summary", "professional_summary", "about_me",
+                       "bio", "objective", "career_objective"],
+        "degree":     ["degree", "qualification", "highest_qualification", "education",
+                       "highest_degree", "academic_qualification"],
+        "university": ["university", "college", "institution", "school", "institute"],
+        "curr_title": ["current_title", "current_role", "job_title", "designation",
+                       "current_designation", "role", "position"],
+        "salary_exp": ["expected_salary", "salary_expectation", "ctc_expected",
+                       "expected_ctc", "salary", "compensation"],
+        "notice":     ["notice_period", "notice", "joining_date", "available_from",
+                       "availability", "when_can_join"],
     }
 
     MAX_RETRIES = 2
@@ -55,6 +73,10 @@ class ApplyAgent(BaseAgent):
 
     async def _try_apply(self, job: dict, application: dict, resume_path: str) -> dict:
         """Single attempt to open apply URL, fill fields, and submit."""
+
+        # Load parsed resume once for this attempt
+        parsed = get_parsed_resume()
+
         playwright = await async_playwright().start()
         browser = await playwright.chromium.launch(
             headless=True,
@@ -82,16 +104,44 @@ class ApplyAgent(BaseAgent):
                 raise CaptchaError("CAPTCHA detected on application page")
 
             s = self.settings
-            await self.fill_field(page, "name", s.applicant_name)
-            await self.fill_field(page, "email", s.applicant_email)
-            await self.fill_field(page, "phone", s.applicant_phone)
-            if s.applicant_linkedin:
-                await self.fill_field(page, "linkedin", s.applicant_linkedin)
-            if s.applicant_github:
-                await self.fill_field(page, "github", s.applicant_github)
-            await self.fill_field(page, "location", s.applicant_location)
-            await self.fill_field(page, "years_exp", str(s.years_experience))
 
+            # --- Basic contact fields (prefer resume data, fall back to .env) ---
+            await self.fill_field(page, "name",     parsed.name or s.applicant_name)
+            await self.fill_field(page, "email",    parsed.email or s.applicant_email)
+            await self.fill_field(page, "phone",    parsed.phone or s.applicant_phone)
+            await self.fill_field(page, "linkedin", parsed.linkedin or s.applicant_linkedin or "")
+            await self.fill_field(page, "github",   parsed.github or s.applicant_github or "")
+            await self.fill_field(page, "location", parsed.location or s.applicant_location)
+
+            # --- Experience ---
+            exp_years = parsed.experience_years or s.years_experience
+            await self.fill_field(page, "years_exp", str(int(exp_years)))
+
+            # --- Resume-enriched fields ---
+            if parsed.skills_text:
+                await self.fill_field(page, "skills", parsed.skills_text)
+
+            if parsed.summary:
+                await self.fill_field(page, "summary", parsed.summary)
+
+            if parsed.education_text:
+                # Fill degree field with first degree line if available
+                degree_line = parsed.education[0]["degree"] if parsed.education else parsed.education_text[:100]
+                await self.fill_field(page, "degree", degree_line)
+                await self.fill_field(page, "university", parsed.education_text[:150])
+
+            if parsed.current_title:
+                await self.fill_field(page, "curr_title", parsed.current_title)
+
+            # Salary expectation from .env
+            if s.salary_min_inr:
+                salary_lpa = round(s.salary_min_inr / 100000, 1)
+                await self.fill_field(page, "salary_exp", str(salary_lpa))
+
+            # Notice period: default 30 days / immediate for fresher
+            await self.fill_field(page, "notice", "30 days" if exp_years >= 1 else "Immediate")
+
+            # Cover letter
             cover = application.get("cover_letter", "")
             if cover:
                 await self.fill_field(page, "cover", cover)

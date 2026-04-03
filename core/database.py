@@ -188,6 +188,56 @@ class DBClient:
                 return 0
             raise DBError(str(exc)) from exc
 
+    async def update_by_field(
+        self, table: str, field: str, value: Any, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update rows matching field=value (e.g. user_id); return first updated row."""
+
+        if not self._configured or self._unreachable:
+            raise DBError("Supabase is not configured or unreachable.")
+
+        def _run() -> dict[str, Any]:
+            response = self.client.table(table).update(data).eq(field, value).execute()
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return {}
+
+        try:
+            result = await asyncio.to_thread(_run)
+            self._unreachable = False
+            return result
+        except DBError:
+            raise
+        except Exception as exc:
+            if _is_connection_error(exc):
+                self._unreachable = True
+                raise DBError("Supabase unreachable.") from exc
+            raise DBError(str(exc)) from exc
+
+    async def upsert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Insert or update a row (upsert on primary key); return first row."""
+
+        if not self._configured or self._unreachable:
+            raise DBError("Supabase is not configured or unreachable.")
+
+        def _run() -> dict[str, Any]:
+            response = self.client.table(table).upsert(data).execute()
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return {}
+
+        try:
+            result = await asyncio.to_thread(_run)
+            self._unreachable = False
+            return result
+        except DBError:
+            raise
+        except Exception as exc:
+            if _is_connection_error(exc):
+                self._unreachable = True
+                raise DBError("Supabase unreachable.") from exc
+            raise DBError(str(exc)) from exc
+
     async def delete_agent_runs_older_than_days(self, days: int = 30) -> None:
         """Remove agent_runs rows older than the given number of days."""
 
